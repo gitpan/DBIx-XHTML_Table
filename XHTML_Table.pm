@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.22';
+$VERSION = '1.24';
 
 use DBI;
 use Carp;
@@ -30,13 +30,16 @@ sub new {
 	# last arg might be GTCH (global table config hash)
 	$self->{'global'} = pop if ref $_[$#_] eq 'HASH';
 
-	# disconnected handles aren't caught :(
-	if (ref $_[0] eq 'DBI::db') {
+	# note: disconnected handles aren't caught :(
+
+	my $thingy = ref $_[0];
+	
+	if ($thingy eq 'DBI::db' || $thingy =~ /^DBIx?::/) {
 		# use supplied db handle
 		$self->{'dbh'}        = $_[0];
 		$self->{'keep_alive'} = 1;
 	} 
-	elsif (ref $_[0] eq 'ARRAY') {
+	elsif ($thingy eq 'ARRAY') {
 		# go ahead and accept a pre-built 2d array ref
 		$self->_do_black_magic(@_);
 	}
@@ -324,11 +327,11 @@ sub map_col {
 	map_cell(@_);
 }
 
-################ ABOMINATIONS TO THE DBIx NAMESPACE ################
+################ UNDOCUMENTED SUBS ################
 
-# don't use these - they belong in /dev/null
-
+# example structure for $config
 # $config = [ { name => '', data => [], before => '' }, { ... }, ... ];
+
 sub add_cols {
 	my ($self,$config) = @_;
 	$config = [$config] unless ref $config eq 'ARRAY';
@@ -369,9 +372,13 @@ sub _build_table {
 	my ($self)  = @_;
 	my $attribs = $self->{'global'}->{'table'};
 
-	my $cdata   = $self->_build_head;
-	$cdata     .= $self->_build_body   if $self->{'rows'};
-	$cdata     .= $self->_build_foot   if $self->{'totals'};
+	my ($head,$body,$foot);
+	$head = $self->_build_head;
+	$body = $self->{'rows'}   ?  $self->_build_body : '';
+	$foot = $self->{'totals'} ?  $self->_build_foot : '';
+
+	# w3c says tfoot comes before tbody ...
+	my $cdata = $head . $foot . $body;
 
 	return _tag_it('table', $attribs, $cdata) . $N;
 }
@@ -720,7 +727,7 @@ __END__
 
 =head1 NAME
 
-DBIx::XHTML_Table - SQL query result set to XHTML table.
+DBIx::XHTML_Table - SQL query result set to XML-based HTML table.
 
 =head1 SYNOPSIS
 
@@ -766,7 +773,7 @@ construction. A partially complete FAQ and Cookbook are available
 there, as well as the Tutorial, Download and Support info: 
 
   http://unlocalhost.com/XHTML_Table/
-  http://jeffa.perlmonk.com/XHTML_Table/
+  http://jeffa.perlmonk.org/XHTML_Table/
 
 =head1 CONSTRUCTOR
 
@@ -827,7 +834,7 @@ and destroyed 'behind the scenes'. If you need to keep the database
 connection open after the XHTML_Table object is destroyed, then
 create one yourself and pass it to the constructor:
 
-  my $dbh   = DBI->connect(
+  my $dbh = DBI->connect(
     $data_source,$usr,$passwd,
     {RaiseError => 1},
   );
@@ -835,6 +842,18 @@ create one yourself and pass it to the constructor:
   my $table = DBIx::XHTML_Table->new($dbh);
     # do stuff
   $dbh->disconnect;
+
+Prior to version 1.24, DBIX::XHTML_Table would only accept a
+reference blessed to the 'DBI::db' namespace. Versions 1.24 and
+up will extent that restriction to any blessed reference that
+matches /^DBIx?::/ - in particular, DBIx::Password:
+
+  my $dbh   = DBIx::Password->connect($user);
+  my $table = DBIx::XHTML_Table->new($dbh);
+
+This I<should> work for any DBI'ish reference that is a
+subclass of DBI::db (such as DBIx::Password), But only DBI::db
+and DBIx::Password have been tested.
 
 =item B<style_3>
 
@@ -1440,6 +1459,8 @@ Jim Cromie for presenting the whole spreadsheet idea.
 Stephen Nelson for documentation/code corrections.
 
 Matt Sergeant for DBIx::XML_RDB.
+
+Richard Piacentini for recommending DBIx::Password compat.
 
 Perl Monks for the education.
 

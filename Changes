@@ -1,5 +1,11 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.24
+	- finally realized that w3c requires tfoot to come before
+	  tbody ... fixed
+	- added DBIx::Password compatibility, any blessed ref
+	  passed to constructor that matches /^DBIx?::/ will work
+
 1.22
 	- well, extremely's patch turned 0's into &nbsp; - fixed
 	  (you rule anyway Mark!)
