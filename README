@@ -13,9 +13,10 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
-	0.82 - Minor version number glitch ($Version: $ from now on)
-	0.81 - Fully qualified package name
-	0.80 - Initial release
+	0.83 - extremely's patch: added </tbody> and lower cased tags
+	0.82 - Fixed version number
+	0.81 - Fixed package name error, broke version number
+	0.80 - Initial release, broke package name convention
 
 AUTHOR
     Jeffrey Hayes Anderson <captvanhalen@yahoo.com>

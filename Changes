@@ -1,11 +1,16 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
-0.82
-	- added $Version: $ to avoid future mistakes
+0.83 Thu May 10 17:09:16 2001
+	- added Mark's patch to produce </tbody> tag
+	- patch also lower cased all tags
+	- documentation typo fixes
+
+0.82 Tue May  8 09:14:54 2001
+	- corrected incorrect version number
 	- corrected formatting in credits
 
-0.81 
-	- fully qualified the package name (oops)
+0.81 Mon May  7 22:34:16 2001
+	- made the package name fully qualified
 	- updated and corrected documentation
 	- updated and corrected tutorial
 	- updated and corrected credits
