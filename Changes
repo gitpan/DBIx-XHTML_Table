@@ -1,5 +1,9 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.32
+	- forced lc end tag
+	- more minor doc changes
+
 1.30
 	- minor doc changes
 

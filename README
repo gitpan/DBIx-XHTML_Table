@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	1.32 - forced lc end tag - more minor doc corrections
 	1.30 - minor doc corrections
 	1.28 - add_cols and drop_cols are now documented
 	1.26 - changed /^DBIx?::/ to simply /DBI/

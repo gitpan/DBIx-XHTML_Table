@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.30';
+$VERSION = '1.32';
 
 use DBI;
 use Carp;
@@ -631,7 +631,7 @@ sub _tag_it {
 		$v = _rotate($v) if (ref $v eq 'ARRAY');
 		$text .= qq| \L$k\E="$v"| unless $v =~ /^$/;
 	}
-	$text .= (defined $cdata) ? ">$cdata</$name>" : '/>';
+	$text .= (defined $cdata) ? ">$cdata</\L$name\E>" : '/>';
 }
 
 # used by map_cell() and map_head()
@@ -770,7 +770,7 @@ The DBIx::XHTML_Table homepage is now available, but still under
 construction. A partially complete FAQ and Cookbook are available
 there, as well as the Tutorial, Download and Support info: 
 
-  http://unlocalhost.com/XHTML_Table/
+  http://www.unlocalhost.com/XHTML_Table/
   http://jeffa.perlmonk.org/XHTML_Table/
 
 =head1 CONSTRUCTOR
@@ -844,7 +844,7 @@ create one yourself and pass it to the constructor:
 Prior to version 1.24, DBIX::XHTML_Table would only accept a
 reference blessed to the 'DBI::db' namespace. Versions 1.24 and
 up will extent that restriction to any blessed reference that
-matches /DBIx/ - in particular, DBIx::Password:
+matches /DBI/ - in particular, DBIx::Password:
 
   my $dbh   = DBIx::Password->connect($user);
   my $table = DBIx::XHTML_Table->new($dbh);
@@ -1240,7 +1240,7 @@ such as 'bgcolor' or 'width'.
 This method is just a more convenient way to do the
 same thing with the modify() modify.
 
-See http://unlocalhost.com/XHTML_Table/cookbook.html#5
+See http://www.unlocalhost.com/XHTML_Table/cookbook.html#5
 for more information on coloring the table.
 
 =item B<set_col_colors>
@@ -1267,7 +1267,7 @@ instead of the CSS style 'color'. For example, you
 could use 'class' or even deprecated HTML attributes
 such as 'bgcolor' or 'width'.
 
-See http://unlocalhost.com/XHTML_Table/cookbook.html#5
+See http://www.unlocalhost.com/XHTML_Table/cookbook.html#5
 for more information on coloring the table.
 
 =item B<set_null_value>
@@ -1497,6 +1497,8 @@ Stephen Nelson for documentation/code corrections.
 
 Matt Sergeant for DBIx::XML_RDB.
 
+Aaron [trs80] Johnson for convincing me into writing add and drop cols.
+
 Richard Piacentini and Tim Alexander for recommending 
    DBIx::Password and Apache::DBI compat.
 
@@ -1514,23 +1516,10 @@ Jeffrey Hayes Anderson <captvanhalen@yahoo.com>
 
 Copyright (c) 2003 Jeffrey Hayes Anderson.
 
-Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated documentation
-files (the "Software"), to deal in the Software without restriction,
-including without limitation the rights to use, copy, modify,
-merge, publish, distribute, sublicense, and/or sell copies of the
-Software, and to permit persons to whom the Software is furnished to
-do so, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included
-in all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 =cut
