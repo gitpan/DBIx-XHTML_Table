@@ -1,5 +1,8 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.30
+	- minor doc changes
+
 1.28
 	- finally 'blessed' add_cols and drop_calls
 	  (no longer undocumented)

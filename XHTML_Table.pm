@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.28';
+$VERSION = '1.30';
 
 use DBI;
 use Carp;
@@ -1426,12 +1426,12 @@ or somewhere in the middle:
 or combine all three into one call:
 
    $table->add_cols(
-      {name=>'New', data=>\@rows, before => 0},
-      {name=>'New', data=>\@rows},
-      {name=>'New', data=>\@rows}, before => 'age'},
+      {name=>'Foo', data=>\@rows, before => 0},
+      {name=>'Bar', data=>\@rows},
+      {name=>'Baz', data=>\@rows}, before => 'Bar'},
    );
 
-=item B<add_cols>
+=item B<drop_cols>
 
    $table->drop_cols([qw(foo bar 5)];
 
