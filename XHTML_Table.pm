@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.24';
+$VERSION = '1.26';
 
 use DBI;
 use Carp;
@@ -34,7 +34,7 @@ sub new {
 
 	my $thingy = ref $_[0];
 	
-	if ($thingy eq 'DBI::db' || $thingy =~ /^DBIx?::/) {
+	if ($thingy eq 'DBI::db' || $thingy =~ /DBI/) {
 		# use supplied db handle
 		$self->{'dbh'}        = $_[0];
 		$self->{'keep_alive'} = 1;
@@ -846,14 +846,14 @@ create one yourself and pass it to the constructor:
 Prior to version 1.24, DBIX::XHTML_Table would only accept a
 reference blessed to the 'DBI::db' namespace. Versions 1.24 and
 up will extent that restriction to any blessed reference that
-matches /^DBIx?::/ - in particular, DBIx::Password:
+matches /DBIx/ - in particular, DBIx::Password:
 
   my $dbh   = DBIx::Password->connect($user);
   my $table = DBIx::XHTML_Table->new($dbh);
 
 This I<should> work for any DBI'ish reference that is a
-subclass of DBI::db (such as DBIx::Password), But only DBI::db
-and DBIx::Password have been tested.
+subclass of DBI::db (such as DBIx::Password), But only DBI::db,
+DBIx::Password, and Apache::DBI have been tested.
 
 =item B<style_3>
 

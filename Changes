@@ -1,5 +1,8 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.26	- changed the blessed ref regex to simply /DBI/
+	  (forgot about Apache::DBI ... doh!)
+
 1.24
 	- finally realized that w3c requires tfoot to come before
 	  tbody ... fixed
