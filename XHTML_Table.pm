@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.10';
+$VERSION = '1.12';
 
 use DBI;
 use Carp;
@@ -518,7 +518,7 @@ sub _build_body_row {
 			$self->{$name}->{'td'}    || $self->{'body'}->{'td'}, 
 			$self->{'global'}->{'td'} || $self->{'body'}->{'td'},
 		);
-		my $cdata   = $row->[$_] || $self->{'null_value'};
+		my $cdata = $row->[$_] =~ /^.+$/ ? $row->[$_] : $self->{'null_value'};
 
 		$self->{'current_col'} = $name;
 
@@ -760,6 +760,7 @@ construction. A partially complete FAQ and Cookbook are available
 there, as well as the Tutorial, Download and Support info: 
 
   http://unlocalhost.com/XHTML_Table/
+  http://jeffa.perlmonk.com/XHTML_Table/
 
 =head1 CONSTRUCTOR
 

@@ -1,5 +1,8 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.12    - fixed bugs in _build_body_row(): 0's were being replaced
+          with &nbsp; tags (thanks LTJake!)
+
 1.10    - fixed two bugs in set_col_colors - first, modify would
 	  over write it; second - 4 colors, 6 columns did not work
 	- attributes are now inheritable
