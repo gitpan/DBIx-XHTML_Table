@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.26';
+$VERSION = '1.28';
 
 use DBI;
 use Carp;
@@ -310,6 +310,41 @@ sub reset {
 	my ($self) = @_;
 }
 
+sub add_cols {
+	my ($self,$config) = @_;
+	$config = [$config] unless ref $config eq 'ARRAY';
+
+	foreach (@$config) {
+		next unless ref $_ eq 'HASH';
+		my ($name,$data,$pos) = @$_{(qw(name data before))};
+		my $max_pos = $self->get_col_count();
+
+		$pos  = $self->_lookup_index(ucfirst $pos || '') || $max_pos unless defined $pos && $pos =~ /^\d+$/;
+		$pos  = $max_pos if $pos > $max_pos;
+		$data = [$data] unless ref $data eq 'ARRAY';
+
+		splice(@{$self->{'fields_arry'}},$pos,0,$name);
+		$self->_reset_fields_hash();
+		splice(@$_,$pos,0,_rotate($data)) for (@{$self->{rows}});
+	}
+
+	return $self;
+}
+
+sub drop_cols {
+	my ($self,$cols) = @_;
+	$cols = $self->_refinate($cols);
+
+	foreach my $col (@$cols) {
+		my $index = delete $self->{'fields_hash'}->{$col};
+		splice(@{$self->{'fields_arry'}},$index,1);
+		$self->_reset_fields_hash();
+		splice(@$_,$index,1) for (@{$self->{'rows'}});
+	}
+
+	return $self;
+}
+
 ###################### DEPRECATED ##################################
 
 sub get_table { 
@@ -325,43 +360,6 @@ sub modify_tag {
 sub map_col { 
 	carp "map_col() is deprecated. Use map_cell() instead";
 	map_cell(@_);
-}
-
-################ UNDOCUMENTED SUBS ################
-
-# example structure for $config
-# $config = [ { name => '', data => [], before => '' }, { ... }, ... ];
-
-sub add_cols {
-	my ($self,$config) = @_;
-	$config = [$config] unless ref $config eq 'ARRAY';
-
-	foreach (@$config) {
-		next unless ref $_ eq 'HASH';
-		my ($name,$data,$pos) = @$_{(qw(name data before))};
-		my $max_pos = $self->get_col_count();
-
-		$pos   = $self->_lookup_index($pos || '') unless $pos && $pos =~ /^\d+$/;
-		$pos ||= $max_pos;
-		$pos   = $max_pos if $pos > $max_pos;
-		$data  = [$data] unless ref $data eq 'ARRAY';
-
-		splice(@{$self->{'fields_arry'}},$pos,0,$name);
-		$self->_reset_fields_hash();
-		splice(@$_,$pos,0,_rotate($data)) for (@{$self->{rows}});
-	}
-}
-
-sub drop_cols {
-	my ($self,$cols) = @_;
-	$cols = $self->_refinate($cols);
-
-	foreach my $col (@$cols) {
-		my $index = delete $self->{'fields_hash'}->{$col};
-		splice(@{$self->{'fields_arry'}},$index,1);
-		$self->_reset_fields_hash();
-		splice(@$_,$index,1) for (@{$self->{'rows'}});
-	}
 }
 
 #################### UNDER THE HOOD ################################
@@ -739,9 +737,9 @@ DBIx::XHTML_Table - SQL query result set to XML-based HTML table.
   my $table = DBIx::XHTML_Table->new($data_source,$usr,$pass);
 
   $table->exec_query("
-	select foo from bar
-	where baz='qux'
-	order by foo
+      select foo from bar
+      where baz='qux'
+      order by foo
   ");
 
   print $table->output();
@@ -885,10 +883,10 @@ point of this module, there is nothing stopping you from
 simply hard coding it:
 
   my $rows = [
-  	[ qw(Head1 Head2 Head3) ],
-	[ qw(foo bar baz)       ],
-	[ qw(one two three)     ],
-	[ qw(un deux trois)     ]
+     [ qw(Head1 Head2 Head3) ],
+     [ qw(foo bar baz)       ],
+     [ qw(one two three)     ],
+     [ qw(un deux trois)     ]
   ];
 
   my $table = DBIx::XHTML_Table->new($rows);
@@ -1181,7 +1179,7 @@ color the cdata inside a <td> tag pair. For example:
 
   # when CSS styles will work
   $table->modify(td => {
-	 style => 'color: red',
+    style => 'color: red',
   }, [qw(first_name last_name)]);
 
 Note that the get_current_row() and get_current_col()
@@ -1337,8 +1335,8 @@ and supply the following:
 
   # well, and you are viewing in IE...
   $table->modify(table => {
-	  cellspacing => 0,
-	  rules       => 'groups',
+    cellspacing => 0,
+    rules       => 'groups',
   });
 
 then horizontal lines will only appear at the point where the 'grouped' 
@@ -1347,7 +1345,7 @@ inside of <table>'s. Much nicer! Add this for a nice coloring trick:
 
   # this works with or without setting a group, by the way
   $table->modify(tbody => {
-	  bgcolor => [qw(insert rotating colors here)],
+    bgcolor => [qw(insert rotating colors here)],
   });
 
 =item B<calc_totals>
@@ -1401,6 +1399,45 @@ Returns the name of the column being processed.
 This method is only meaningful inside a map_cell() callback; if you access
 it otherwise, you will either receive undef or the the name of the last
 column specified in your SQL statement.
+
+=item B<add_cols>
+
+   $table->add_cols(
+      { header => '', data => [], before => '' }, { ... }, ... 
+   );
+
+Going against the philosophy of only select what you need from the database,
+this sub allows you to remove whole columns. 'header' is the name of the new
+column, you will have to ucfirst yourself. It is up to you to ensure that
+that the size of 'data' is the same as the number of rows in the original
+data set. 'before' can be an index or the name of the column. For example,
+to add a new column to the beginning:
+
+   $table->add_cols({name=>'New', data=>\@rows, before => 0});
+
+add a new column to the end:
+
+   $table->add_cols({name=>'New', data=>\@rows});
+
+or somewhere in the middle:
+
+   $table->add_cols({name=>'New', data=>\@rows}, before => 'age'});
+
+or combine all three into one call:
+
+   $table->add_cols(
+      {name=>'New', data=>\@rows, before => 0},
+      {name=>'New', data=>\@rows},
+      {name=>'New', data=>\@rows}, before => 'age'},
+   );
+
+=item B<add_cols>
+
+   $table->drop_cols([qw(foo bar 5)];
+
+Like add_cols, drop_cols goes against said 'philosophy', but it is here for
+the sake of TIMTWOTDI. Simply pass it an array ref that contains either the
+name or positions of the columns you want to drop.
 
 =back
 
@@ -1460,7 +1497,8 @@ Stephen Nelson for documentation/code corrections.
 
 Matt Sergeant for DBIx::XML_RDB.
 
-Richard Piacentini for recommending DBIx::Password compat.
+Richard Piacentini and Tim Alexander for recommending 
+   DBIx::Password and Apache::DBI compat.
 
 Perl Monks for the education.
 

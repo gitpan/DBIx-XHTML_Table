@@ -13,7 +13,8 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
-	1.24 - changed /^DBIx?::/ to simply /DBI/
+	1.28 - add_cols and drop_cols are now documented
+	1.26 - changed /^DBIx?::/ to simply /DBI/
 	1.24 - output tfoot before tbody, accecpt /^DBIx?::/ in constr.
 	1.22 - tweaked last patch and converting & to &amp;
 	1.20 - added extremely's patch to keep NULL complaints at bay

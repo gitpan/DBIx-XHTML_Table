@@ -1,6 +1,11 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
-1.26	- changed the blessed ref regex to simply /DBI/
+1.28
+	- finally 'blessed' add_cols and drop_calls
+	  (no longer undocumented)
+
+1.26
+	- changed the blessed ref regex to simply /DBI/
 	  (forgot about Apache::DBI ... doh!)
 
 1.24
