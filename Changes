@@ -1,5 +1,19 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+0.90
+	- MAJOR: Changed HEADER to HEAD and FOOTER to FOOT
+	- Apparrently all past versions have a syntax error
+	  occur when modify_tag() is called on <colgroup>
+	  BEFORE add_col_tag() is called - fixed.
+	- modifying <tr> affects all areas now, not just BODY
+	  this probably makes set_row_colors() obsolete, except
+	  when subtotals are present.
+	- more minor output formatting fixed - should be perfect!
+0.86 
+	- fixed minor output fomatting - <thead> was on same 
+	  line as <table>, and <tbody> would do the same if
+	  headers were supressed
+
 0.85  Sat May 12 14:38:02 CDT 2001
 	- found major bug in _build_body() - a <tbody>
 	  tag pair was being created for every row if a

@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	0.90 - HEADER is now HEAD - FOOTER is now FOOT, <colgroup> fixed
 	0.85 - Fixed <tbody> bug introduced by tables sans groups
 	0.84 - Refactored the whole <tbody>, calc totals process
 	0.83 - Mark Mill's patch: added </tbody> and lower cased tags

@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.85';
+$VERSION = '0.90';
 
 use DBI;
 use Data::Dumper;
@@ -34,8 +34,9 @@ sub new {
 		# use supplied db handle
 		$self->{dbh}        = $_[0];
 		$self->{keep_alive} = 1;
-	} # move along, nothing to see here
+	} 
 	elsif (ref $_[0] eq 'ARRAY') {
+		# go ahead and accept a pre-built 2d array ref
 		$self->_do_black_magic(shift);
 	}
 	else {
@@ -54,10 +55,11 @@ sub exec_query {
 	my ($self,$sql,$vars) = @_;
 	my $i = 0;
 
+	# fetch the query results
 	$self->{sth} = $self->{dbh}->prepare($sql) || croak $self->{dbh}->errstr;
 	$self->{sth}->execute(@$vars)              || croak $self->{sth}->errstr;
 
-	# can you say ArrayHashMonster?
+	# store the results - can you say ArrayHashMonster?
 	$self->{fields_arry} = [ map { lc }         @{$self->{sth}->{NAME}} ];
 	$self->{fields_hash} = { map { $_ => $i++ } @{$self->{fields_arry}} };
 	$self->{rows}        = $self->{sth}->fetchall_arrayref;
@@ -204,19 +206,17 @@ sub set_null_value {
 #################### UNDER THE HOOD ################################
 
 sub _build_table {
-	my ($self) = @_;
-	my ($attribs,$cdata);
+	my ($self)  = @_;
+	my $attribs = $self->{global}->{table};
 
-	$attribs = $self->{global}->{table};
+	my $cdata   = $self->_build_head;
+	$cdata     .= $self->_build_body   if $self->{rows};
+	$cdata     .= $self->_build_foot   if $self->{totals};
 
-	$cdata  = $self->_build_header;
-	$cdata .= $self->_build_body   if $self->{rows};
-	$cdata .= $self->_build_footer if $self->{totals};
-
-	return _tag_it('table', $attribs, $cdata,) . $N;
+	return _tag_it('table', $attribs, $cdata) . $N;
 }
 
-sub _build_header {
+sub _build_head {
 	my ($self) = @_;
 	my ($output,$attribs,$cdata,$caption);
 
@@ -224,34 +224,35 @@ sub _build_header {
 	if ($caption = $self->{global}->{caption_value}) {
 		$attribs = $self->{global}->{caption};
 		$cdata   = $self->_xml_encode($caption);
-		$output .= $N.$T . _tag_it('caption', $attribs, $cdata) . $N;
+		$output .= $N.$T . _tag_it('caption', $attribs, $cdata);
 	}
 
 	# build the colgroups if applicable
 	if ($attribs = $self->{global}->{colgroup}) {
-		$cdata   = $self->_build_header_colgroups();
-		$output .= $N.$T . _tag_it('colgroup', $attribs, $cdata) . $N;
+		$cdata   = $self->_build_head_colgroups();
+		$output .= $N.$T . _tag_it('colgroup', $attribs, $cdata);
 	}
 
 	# go ahead and stop if they don't want the titles
-	return $output if $self->{suppress_titles};
+	return "$output\n" if $self->{suppress_titles};
 
 	# prepare the tr tag info
-	my $tr_attribs = $self->{header}->{tr};
-	my $tr_cdata   = $self->_build_header_row();
+	my $tr_attribs = $self->{head}->{tr} || $self->{global}->{tr};
+	my $tr_cdata   = $self->_build_head_row();
 
 	# prepare the thead tag info
-	$attribs = $self->{global}->{thead};
+	$attribs = $self->{head}->{thead} || $self->{global}->{thead};
 	$cdata   = $N.$T . _tag_it('tr', $tr_attribs, $tr_cdata) . $N.$T;
 
 	# add the thead tag to the output
-	$output .= $T . _tag_it('thead', $attribs, $cdata) . $N;
+	$output .= $N.$T . _tag_it('thead', $attribs, $cdata) . $N;
 }
 
-sub _build_header_colgroups {
+sub _build_head_colgroups {
 	my ($self) = @_;
 	my (@cols,$output);
 
+	return unless $self->{colgroups};
 	return undef unless @cols = @{$self->{colgroups}};
 
 	foreach (@cols) {
@@ -262,12 +263,12 @@ sub _build_header_colgroups {
 	return $output;
 }
 
-sub _build_header_row {
+sub _build_head_row {
 	my ($self) = @_;
 	my $output = $N;
 
 	foreach (@{$self->{fields_arry}}) {
-		my $attribs = $self->{$_}->{th} || $self->{header}->{th} || $self->{global}->{th};
+		my $attribs = $self->{$_}->{th} || $self->{head}->{th} || $self->{global}->{th};
 		$output .= $T.$T . _tag_it('th', $attribs, ucfirst $_) . $N;
 	}
 
@@ -290,7 +291,7 @@ sub _build_body {
 	# of the rows, one for each group
 	foreach my $end (@indicies) {
 		my $body_group = $self->_build_body_group([@{$self->{rows}}[$beg..$end]]);
-		my $attribs    = $self->{global}->{tbody};
+		my $attribs    = $self->{global}->{tbody} || $self->{body}->{tbody};
 		my $cdata      = $N . $body_group . $T;
 
 		$output .= $T . _tag_it('tbody',$attribs,$cdata) . $N;
@@ -302,19 +303,18 @@ sub _build_body {
 sub _build_body_group {
 
 	my ($self,$chunk) = @_;
-	my ($output,$attribs,$cdata);
+	my ($output,$cdata);
+	my $attribs = $self->{body}->{tr} || $self->{global}->{tr};
 
 	# build the rows
 	for my $i (0..$#$chunk) {
 		my $row  = $chunk->[$i];
-		$attribs = $self->{body}->{tr};
 		$cdata   = $self->_build_body_row($row, ($i and $self->{nodup} or 0));
-		$output .= $T . _tag_it('tr', $attribs, $cdata) . $N;
+		$output .= $T . _tag_it('tr',$attribs,$cdata) . $N;
 	}
 
 	# build the subtotal row if applicable
 	if (my $subtotals = shift @{$self->{sub_totals}}) {
-		$attribs = $self->{body}->{tr};
 		$cdata   = $self->_build_body_subtotal($subtotals);
 		$output .= $T . _tag_it('tr',$attribs,$cdata) . $N;
 	}
@@ -371,19 +371,19 @@ sub _build_body_subtotal {
 	return $output . $T;
 }
 
-sub _build_footer {
+sub _build_foot {
 	my ($self) = @_;
 
-	my $tr_attribs = $self->{footer}->{tr};
-	my $tr_cdata   = $self->_build_footer_row();
+	my $tr_attribs = $self->{global}->{tr} || $self->{foot}->{tr};
+	my $tr_cdata   = $self->_build_foot_row();
 
-	my $attribs = $self->{global}->{tfoot};
+	my $attribs = $self->{foot}->{tfoot} || $self->{global}->{tfoot};
 	my $cdata   = $N.$T . _tag_it('tr', $tr_attribs, $tr_cdata) . $N.$T;
 
 	return $T . _tag_it('tfoot',$attribs,$cdata) . $N;
 }
 
-sub _build_footer_row {
+sub _build_foot_row {
 	my ($self) = @_;
 
 	my $output = $N;
@@ -391,7 +391,7 @@ sub _build_footer_row {
 
 	for (0..$#$row) {
 		my $name    = $self->{fields_arry}->[$_];
-		my $attribs = $self->{$name}->{th} || $self->{footer}->{th} || $self->{global}->{th};
+		my $attribs = $self->{$name}->{th} || $self->{foot}->{th} || $self->{global}->{th};
 		my $sum     = ($row->[$_]);
 
 		# use sprintf if mask was supplied
@@ -449,6 +449,7 @@ sub _rotate {
 	return $next;
 }
 
+# assigns a non-DBI supplied data table (2D array ref)
 sub _do_black_magic {
 	my ($self,$ref) = @_;
 	my $i = 0;
@@ -480,7 +481,7 @@ DBIx::XHTML_Table - Create XHTML tables from SQL queries
   my ($dsource,$user,$pass) = ();
 
   # create the object
-  my $table = new DBIx::XHTML_Table($dsource, $user, $pass) 
+  my $table = DBIx::XHTML_Table->new($dsource, $user, $pass) 
   			|| die "could not connect to database\n";
 
   # grab some data
@@ -536,12 +537,11 @@ DBIx::XHTML_Table - Create XHTML tables from SQL queries
 
 =head1 DESCRIPTION
 
-B<XHTML_Table> will execute SQL queries and return the results
-wrapped in XHTML tags. Methods are provided for determining 
-which tags to use and what their attributes will be. Tags
-such as <table>, <tr>, <th>, and <td> will be automatically
-generated, you just have to specify what attributes they
-will use.
+B<XHTML_Table> will execute SQL queries and return the results 
+(as a scalar 'string') wrapped in XHTML tags. Methods are provided 
+for determining which tags to use and what their attributes will be.
+Tags such as <table>, <tr>, <th>, and <td> will be automatically
+generated, you just have to specify what attributes they will use.
 
 This module was created to fill a need for a quick and easy way to
 create 'on the fly' XHTML tables from SQL queries for the purpose
@@ -555,13 +555,14 @@ on browsers that are not XML or XHTML compliant. At the worst, only
 the XHTML tags will be ignored, and not the content of the report.
 
 The user is highly recommended to become familiar with the rules and
-structure of the new XHTML tags used for tables.  A good, terse
-reference can be found at
+structure of the new XHTML tags used for tables.  XHTML is pretty
+much the HTML4.0 specification, but with the rules of XML.  A good, 
+terse reference on HTML4.0 can be found at
 http://www.w3.org/TR/REC-html40/struct/tables.html
 
-There is a simple table after the the following section that
-lists all supported tags, how they are created, and what method
-to use to set the attributes. No big whoop.
+Included in this documention is a simple table that lists all supported
+tags, how they are created, and what method is used to set the attributes.
+See B<TAG REFERENCE> (yes, i know that's spelled wrong).
 
 Additionally, a simple B<TUTORIAL> is included in this documentation
 toward the end, just before the third door, down the hall, past
@@ -578,7 +579,7 @@ the chickens and through a small gutter (just keep scrolling down).
 Construct a new XHTML_Table object by supplying the database
 credentials: datasource, user, password: 
 
-  my $table = new DBIx::XHTML_Table($dsource,$usr,$passwd) || die;
+  my $table = DBIx::XHTML_Table->new($dsource,$usr,$passwd) || die;
 
 The constuctor will simply pass the arguments to the connect()
 method from F<DBI.pm> - see L<DBI> as well as the one for your
@@ -589,16 +590,45 @@ DBD::mysql, etc. The explanation of $dsource lies therein.
 
   $obj_ref = new DBIx::XHTML_Table($DBH)
 
-The previous signature will result in the database handle
-being created and destroyed 'behind the scenes'. If you need
-to keep the database connection open, create one yourself
-and pass it to the constructor:
+The first style will result in the database handle being created
+and destroyed 'behind the scenes'. If you need to keep the database
+connection open, create one yourself and pass it to the constructor:
 
   my $DBH   = DBI->connect($dsource,$usr,$passwd) || die;
-  my $table = new DBIx::XHTML_Table($DBH);
+  my $table = DBIx::XHTML_Table->new($DBH);
     # do stuff
   $DBH->disconnect;
 
+=item B<style 3>
+
+  $obj_ref = new DBIx::XHTML_Table($array_ref)
+
+The final style allows you to bypass a database altogether if need
+be. Simply pass a similar structure as the one passed back from
+B<DBI>'s C<selectall_arrayref()>, that is, a list of lists:
+
+  my $ref = [
+  	[ qw(Head1 Head2 Head3) ],
+	[ qw(foo bar baz)       ],
+	[ qw(one two three)     ],
+	[ qw(un deux trois)     ]
+  ];
+
+  my $table = DBIx::XHTML_Table->new($ref);
+
+The only catch is that the first row will be treated as the table
+heading - be sure and supply one, even you don't need it.  You can
+always bypass the printing of the heading via C<get_table()>.
+
+=back
+
+=head1 OBJECT METHODS
+
+=over 4
+
+=item B<exec_query>
+
+  $table->exec_query($sql,[$bind_vars])
 =back
 
 =head1 OBJECT METHODS
@@ -633,11 +663,11 @@ can be modified via B<map_column()>.
 
 Renders and returns the XHTML table. The first argument is a
 non-zero, defined value that suppresses the column titles. The
-column footers can be suppressed by not calculating totals, and
+column foots can be suppressed by not calculating totals, and
 the body can be suppressed by an appropriate SQL query. The
 caption and colgroup cols can be suppressed by not modifying
-them. The column titles are the only part that has to be
-specifically told not to generate, and this is where you do that.
+them. The column titles are the only section that has to be
+specifically 'told' not to generate, and this is where you do that.
 
   print $table->get_table;      # produces titles by default
   print $table->get_table(1);   # does not produce titles
@@ -703,13 +733,13 @@ The last argument is optional and can either be a scalar
 representing a single column or area, or an array reference
 containing multilple columns or areas. The columns will be
 the corresponding names of the columns from the SQL query.
-The areas are one of three values: HEADER, BODY, or FOOTER.
+The areas are one of three values: HEAD, BODY, or FOOT.
 The columns and areas you specify are case insensitive.
 
   # just modify the titles
   $table->modify_tag('th',{
       bgcolor => '#bacaba',
-  }, 'header');
+  }, 'head');
 
 You cannot currently mix areas and columns. 
 
@@ -801,7 +831,7 @@ subroutine to. Example:
   $table->map_col( sub { return uc shift }, 'department');
 
 One temptation that needs to be addressed is using this method to
-color the cdata inside a <td> tag pair. Don't be tempted to do this:
+color the cdata inside a <td> tag pair. For example:
 
   # don't be tempted to do this
   $table->map_col(sub {
@@ -917,19 +947,22 @@ Returns the numbers of body rows in the table.
 
 =head1 TAG REFERENCE
 
-   TAG        CREATION   METHODS TO SET ATTRIBS
-+-----------+----------+-------------------------+
-| table     |   auto   |      modify_tag()       |
-| caption   |  manual  |      modify_tag()       |
-| thead     |   auto   |      modify_tag()       |
-| tfoot     |   auto   |      modify_tag()       |
-| tbody     |   auto   |      modify_tag()       |
-| colgroup  |  manual  |      modify_tag()       |
-| col       |  manual  |     add_col_tag()       |
-| tr        |   auto   |      modify_tag()       |
-| th        |   auto   |      modify_tag()       |
-| td        |   auto   |      modify_tag()       |
-+-----------+------------------------------------+
+    TAG        CREATION    BELONGS TO AREA
++------------+----------+--------------------+
+| <table>    |   auto   |       ----         |
+| <caption>  |  manual  |       ----         |
+| <colgroup> |  manual  |       ----         |
+| <col>*     |  manual  |       ----         |
+| <thead>    |   auto   |       head         |
+| <tbody>    |   auto   |       body         |
+| <td>       |   auto   |       body         |
+| <tr>       |   auto   |  head,body,foot    |
+| <th>       |   auto   |  head,body,foot    |
+| <tfoot>    |   auto   |       foot         |
++------------+-------------------------------+
+
+ * All tags use B<modify_tag()> to set attributes
+   except <col>, which uses B<add_col_tag()> instead
 
 =head1 TUTORIAL
 
@@ -992,7 +1025,7 @@ At this point, we have the means to retrieve a very basic XHTML
 table. Everything will be displayed nice and lined up, but folks
 want 'pretty bridges'. Start by modifying the <table> tag:
 
-  $table->modify_tag('table',{
+  $table->modify_tag(table => {
     border      => 2,
     cellspacing => 0,
     width       => '40%',
@@ -1004,7 +1037,7 @@ want 'pretty bridges'. Start by modifying the <table> tag:
 
 Add a caption:
 
-  $table->modify_tag('caption','This Weeks Takes');
+  $table->modify_tag(caption => 'This Weeks Takes');
 
   # to see this example progress from simple to complex,
   # add each of the following snippets (one at a time)
@@ -1014,12 +1047,12 @@ Let's sum up how much the kids took this week:
 
   $table->calc_totals('take');
 
-The totals appear as the last row, in the FOOTER area.
-Color that row and the HEADER row:
+The totals appear as the last row, in the FOOT area.
+Color that as well as the HEAD area:
 
-  $table->modify_tag('th',{
+  $table->modify_tag(th => {
     bgcolor  => '#98a898',
-  }, [qw(header footer)]);
+  }, [qw(head foot)]);
 
 The duplicate names in the Parent's column is
 annoying, you can pick one and only one column
@@ -1035,14 +1068,14 @@ off of the group you designated, Parent:
 
 More rows added to the BODY area. Change their color:
 
-  $table->modify_tag('th',{
+  $table->modify_tag(th => {
     bgcolor  => '#a9b9a9',
   },'body');
 
 Hmmm, now the take column looks off-balance, change
 the aligment:
 
-  $table->modify_tag('td',{
+  $table->modify_tag(td => {
     align  => 'center',
   },'take');
 
@@ -1057,46 +1090,23 @@ a list of colors to I<set_row_colors>. You can find it at
 
 =head1 BUGS
 
-Yes. But I prefer to call them features. See B<TODO>.
-
-=head1 TODO
-
-I consider this module to be 95% complete, all features
-work and the orginal requirements were all completed.
-However, I do not feel that is ready for a version of
-1.0 just yet. Some more issues need to be addressed and
-solved:
-
 =over 4
 
-=item Allow multiple groups
+=item Problems with 'SELECT *'
 
-Only being able to set one group is limiting, but unless
-there is a practicle need to do so, I probably won't 
-bother implenting this one. Patches are welcome.
+Users are recommended to avoid 'select *' and instead
+specify the names of the columns. Problems have been reported
+using 'select *' with SQLServer7 will cause certain 'text' type 
+columns not to display. I have not experienced this problem
+personally, and tests on Oracle and mySQL show that they are not
+affected by this. SQLServer7 users, please help me confirm this. :)
 
-=item Give finer tuning on group colors
+=item Not specifying <body> tag in CGI scripts
 
-It might be nice to allow groups columns to only change
-colors when the group changes, not just the row. I'll
-be looking for a way to implement this cleanly. And why
-stop with colors?  The B<set_row_colors> probably should
-be deprecated and a new method that handles any attribute
-would be ideal.
-
-=item Add a method to map subs to the titles
-
-Just like B<map_col>, a new method that changes the
-titles <th> tag's cdata would be nice. For example,
-changing the titles to anchor links that point back
-to the CGI script a sort query variable set to the
-name of the cdata. Instant front-end to sortable
-reports.
-
-=item Make B<map_col> behave itself
-
-The previous item could be easily solved if B<map_col>
-did not alter the original data.
+I anticipate this module to be used by CGI scripts, and when
+writing my own 'throw-away' scripts, I noticed that Netscape 4
+will not display a table that contains XHTML tags IF a <body>
+tag is NOT found. Be sure and print one out.
 
 =back
 
