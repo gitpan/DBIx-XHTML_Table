@@ -1,5 +1,8 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.36
+	- doc updates
+
 1.34
 	- constructer now checks for DBI::db subclasses
 	- exec_query() now accepts DBI::st subclasses
