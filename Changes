@@ -1,5 +1,11 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+0.97
+	- deprecated get_table() for output() - same results
+	- added automatic header ucfirst and 'no_ucfirst' to turn off
+	- removed tutorial from POD
+	- added link to homepage to POD and corrected typos
+
 0.96
 	- deprecated map_col() for map_cell() - same results
 	  just hopefully a more descriptive name
