@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.95';
+$VERSION = '0.96';
 
 use DBI;
 use Data::Dumper;
@@ -62,10 +62,15 @@ sub exec_query {
 	$self->{sth} = $self->{dbh}->prepare($sql) || croak $self->{dbh}->errstr;
 	$self->{sth}->execute(@$vars)              || croak $self->{sth}->errstr;
 
-	# store the results - can you say ArrayHashMonster?
+	# store the results
 	$self->{fields_arry} = [ map { lc }         @{$self->{sth}->{NAME}} ];
 	$self->{fields_hash} = { map { $_ => $i++ } @{$self->{fields_arry}} };
 	$self->{rows}        = $self->{sth}->fetchall_arrayref;
+
+	if (exists $self->{pk}) {
+		$self->{pk_index} = delete $self->{fields_hash}->{$self->{pk}};
+		splice(@{$self->{fields_arry}},$self->{pk_index},1);
+	}
 }
 
 sub get_table {
@@ -99,13 +104,15 @@ sub modify_tag {
 	}
 }
 
-sub map_col {
+sub map_cell {
 	my ($self,$sub,$cols) = @_;
 
 	$cols = $self->_refinate($cols);
 	#$self->_map_it($cols,$_,$sub) foreach @{$self->{rows}};
-	$self->{'map_col'} = { cols => $cols, 'sub' => $sub };
+	$self->{'map_cell'} = { cols => $cols, 'sub' => $sub };
 }
+
+sub map_col { map_cell(@_) }
 
 sub map_head {
 	my ($self,$sub,$cols) = @_;
@@ -172,6 +179,12 @@ sub calc_subtotals {
 	}
 }
 
+sub set_pk {
+	my ($self,$pk) = @_;
+	warn "too late to set primary key" if exists $self->{rows};
+	$self->{pk} = lc $pk;
+}
+
 sub get_col_count {
 	my ($self) = @_;
 	my $count = scalar @{$self->{fields_arry}};
@@ -182,6 +195,14 @@ sub get_row_count {
 	my ($self) = @_;
 	my $count = scalar @{$self->{rows}};
 	return $count;
+}
+
+sub get_current_row {
+	return shift->{'current_row'};
+}
+
+sub get_current_col {
+	return shift->{'current_col'};
 }
 
 sub set_row_colors {
@@ -220,7 +241,8 @@ sub _build_table {
 
 sub _build_head {
 	my ($self) = @_;
-	my ($output,$attribs,$cdata,$caption);
+	my ($attribs,$cdata,$caption);
+	my $output = '';
 
 	# build the <caption> tag if applicable
 	if ($caption = $self->{global}->{caption}) {
@@ -269,7 +291,10 @@ sub _build_head_row {
 	my ($self) = @_;
 	my $output = $N;
 
+	#my $pk_col;
 	my @copy = @{$self->{fields_arry}};
+	#$pk_col  = splice(@copy,$self->{pk_index},1) if defined $self->{pk_index};
+
 	foreach my $field (@copy) {
 		my $attribs = $self->{$field}->{th} || $self->{head}->{th} || $self->{global}->{th};
 		$field = _map_it($self->{'map_head'},$field,$field);
@@ -309,11 +334,13 @@ sub _build_body_group {
 	my ($self,$chunk) = @_;
 	my ($output,$cdata);
 	my $attribs = $self->{body}->{tr} || $self->{global}->{tr};
+	my $pk_col = '';
 
 	# build the rows
 	for my $i (0..$#$chunk) {
 		my @row  = @{$chunk->[$i]};
-		$cdata   = $self->_build_body_row(\@row, ($i and $self->{nodup} or 0));
+		$pk_col  = splice(@row,$self->{pk_index},1) if defined $self->{pk_index};
+		$cdata   = $self->_build_body_row(\@row, ($i and $self->{nodup} or 0), $pk_col);
 		$output .= $T . _tag_it('tr',$attribs,$cdata) . $N;
 	}
 
@@ -327,18 +354,23 @@ sub _build_body_group {
 }
 
 sub _build_body_row {
-	my ($self,$row,$nodup) = @_;
+	my ($self,$row,$nodup,$pk) = @_;
 
 	my $group  = $self->{group};
 	my $index  = $self->{fields_hash}->{$group} if $group;
 	my $output = $N;
 	my $colors;
 
+	$self->{current_row} = $pk;
+
 	for (0..$#$row) {
 		my $name    = $self->{fields_arry}->[$_];
 		my $attribs = $self->{$name}->{td} || $self->{global}->{td};
 		my $cdata   = $row->[$_] || $self->{null_value};
-		$cdata      = _map_it($self->{'map_col'},$cdata,$name);
+
+		$self->{current_col} = $name;
+
+		$cdata = _map_it($self->{'map_cell'},$cdata,$name);
 
 		# handle 'no duplicates'
 		$cdata = $self->{nodup} if $nodup and $index == $_;
@@ -426,7 +458,7 @@ sub _tag_it {
 	$text .= (defined $cdata) ? ">$cdata</$name>" : '/>';
 }
 
-# used by map_col() and map_head()
+# used by map_cell() and map_head()
 sub _map_it {
 	my ($hash,$datum,$col) = @_;
 	return $datum unless $hash;
@@ -473,6 +505,7 @@ sub _rotate {
 # always returns an array ref
 sub _refinate {
 	my ($self,$ref) = @_;
+	#FIXME: following line dies if map_head called before exec_query
 	@$ref = @{$self->{fields_arry}} unless defined $ref;
 	$ref = [$ref] unless ref $ref eq 'ARRAY';
 	return $ref; # make sure nothing changes $ref !!
@@ -491,7 +524,7 @@ sub _do_black_magic {
 sub DESTROY {
 	my ($self) = @_;
 	unless ($self->{keep_alive}) {
-		$self->{dbh}->disconnect if exists $self->{dbh};
+		$self->{dbh}->disconnect if defined $self->{dbh};
 	}
 }
 
@@ -645,6 +678,10 @@ heading - be sure and supply one, even you don't need it. As a side
 effect, that first row will be removed from $ref upon instantiation.
 You can always bypass the printing of the heading via C<get_table()>.
 
+Note that I only added this feature because it was too easy and simple
+not to. The intention of this module is that it be used with DBI, but
+who says you have to follow the rules.
+
 =back
 
 =head1 OBJECT METHODS
@@ -671,7 +708,7 @@ Consult L<DBI> for more details on bind vars.
 After the query successfully exectutes, the results will be
 stored interally as a 2-D array. The XHTML table tags will
 not be generated until B<get_table()> is invoked, and the results
-can be modified via B<map_column()>.
+can be modified via B<map_cellumn()>.
 
 =item B<get_table>
 
@@ -833,9 +870,9 @@ get_col_count() method in this example:
 	  class => 'body',
   });
 
-=item B<map_col>
+=item B<map_cell>
 
-  $table->map_col($subroutine[,$cols])
+  $table->map_cell($subroutine[,$cols])
 
 Map a supplied subroutine to all the <td> tag's cdata for
 the specified columns.  The first argument is a reference to a
@@ -845,13 +882,13 @@ The second argument is the column (scalar) or columns (reference
 to a list of scalars) to apply this subroutine to. Example: 
 
   # uppercase the data in column DEPARTMENT
-  $table->map_col( sub { return uc shift }, 'department');
+  $table->map_cell( sub { return uc shift }, 'department');
 
 One temptation that needs to be addressed is using this method to
 color the cdata inside a <td> tag pair. For example:
 
   # don't be tempted to do this
-  $table->map_col(sub {
+  $table->map_cell(sub {
     return qq|<font color="red">| . shift . qq|</font>|;
   }, 'first_name');
 
@@ -863,7 +900,7 @@ color the cdata inside a <td> tag pair. For example:
 Another good candidate for this method is turning the cdata
 into an anchor:
 
-  $table->map_col(sub {
+  $table->map_cell(sub {
     my $raw = shift;
     return qq|<a href="/foo.cgi?process=$raw">$raw</font>|;
   }, 'category');
@@ -871,11 +908,15 @@ into an anchor:
 If [$cols] is not specified, all columns are assumed. This
 method does not permantly change the data. 
 
+=item B<map_col>
+
+Deprecated - use map_cell() instead.
+
 =item B<map_head>
 
   $table->map_head($subroutine[,$cols])
 
-Just like map_col(), except it modifies only column headers, 
+Just like map_cell(), except it modifies only column headers, 
 i.e. the <th> data located inside the <thead> section. The
 immediate application is to ucfirst() the column headers:
 
@@ -926,6 +967,32 @@ method (explained further below) and modify_tag() on <tbody>:
 Change the default null_value (&nbsp;) to something else.  
 Any column that is undefined will have this value 
 substituted instead.
+
+=item B<set_pk>
+
+  $table->set_pk('name of primary key column');
+
+This method must be called before exec_query() in order to work!
+
+This is highly specialized method - the need is when you want to select
+the primary key along with the columns you want to display, but you
+don't want to display it as well. The value will be accessible via
+get_current_row(). This is useful as a a callback via map_cell(). 
+Consider the following:
+
+  $table->map_col(sub { 
+    my $datum = shift;
+    my $row   = $table->get_current_row();
+    my $col   = $table->get_current_col();
+    return qq|<input type="text" name="$row:$col" value="$datum">|;
+  });
+
+This will render a "poor man's" spreadsheet, provided that set_pk() was
+called with the proper primary key before exec_query() was called.
+Now each input has a name that can be split to reveal which row and
+column the value belongs to.
+
+Big thanks to Jim Cromie for the idea.
 
 =item B<set_group>
 
@@ -1003,6 +1070,24 @@ Returns the number of columns in the table.
 
 Returns the numbers of body rows in the table.
 
+=item B<get_current_row>
+
+  $scalar = $table->get_current_row()
+
+Returns the value of the primary key for the current row being processed.
+This method is only meaningful inside a map_cell() callback; if you access
+it otherwise, you will either receive undef or the value of the primary
+key of the last row of data.
+
+=item B<get_current_col>
+
+  $scalar = $table->get_current_col()
+
+Returns the name of the column being processed.
+This method is only meaningful inside a map_cell() callback; if you access
+it otherwise, you will either receive undef or the the name of the last
+column specified in your SQL statement.
+
 =back
 
 =head1 TAG REFERENCE
@@ -1033,15 +1118,15 @@ sample database table is nothing more than a glorified
 flat file, but it will suffice:
 
   +----------------------+
-  |Child    Parent   Take|
+  |Parent   Child    Take|
   +----------------------+
-  |bugs     Mo         5 |
-  |daffy    Larry      4 |
-  |donald   Larry      4 |
-  |porky    Curly      7 |
-  |mickey   Mo         8 |
-  |goofy    Curly      9 |
-  |cartman  Mo         2 |
+  |Mo       bugs       5 |
+  |Larry    daffy      4 |
+  |Larry    donald     4 |
+  |Curly    porky      7 |
+  |Mo       mickey     8 |
+  |Curly    goofy      9 |
+  |Mo       cartman    2 |
   +----------------------+
 
 Call this table B<BAR>, and let's assign it to database
@@ -1184,6 +1269,8 @@ tag is NOT found. Be sure and print one out.
 Briac 'OeufMayo' PilprE<eacute> for the name
 
 Mark 'extremely' Mills for patches and suggestions
+
+Jim Cromie for presenting the whole spreadsheet idea.
 
 Matt Sergeant for DBIx::XML_RDB
 

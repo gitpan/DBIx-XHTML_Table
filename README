@@ -13,6 +13,8 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	0.96 - added set_pk(), get_current_row(), and get_current_col()
+	     - deprecated map_col()
 	0.95 - added map_head(), constructor now accepts minor table config
 	0.90 - HEADER is now HEAD - FOOTER is now FOOT, <colgroup> fixed
 	0.85 - Fixed <tbody> bug introduced by tables sans groups

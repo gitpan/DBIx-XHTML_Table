@@ -1,5 +1,13 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+0.96
+	- deprecated map_col() for map_cell() - same results
+	  just hopefully a more descriptive name
+	- added get_current_row() and get_current_col()
+	- added set_pk(), this and the last 2 subs were
+	  inspired by Jim Cromie to finagle XHTML_Table into
+	  a 'spreadsheet' - see the POD for set_pk()
+
 0.95
 	- added map_head()
 	- changed default behavior of not specifying cols
