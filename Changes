@@ -1,5 +1,8 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.20
+	- added extremely's patch to keep NULL warnings at bay
+
 1.18
 	- forgot to name directory correctly in last version
 

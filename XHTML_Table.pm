@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.18';
+$VERSION = '1.20';
 
 use DBI;
 use Carp;
@@ -328,10 +328,9 @@ sub map_col {
 	map_cell(@_);
 }
 
-################ ABOMINATIONS TO THE DBIx NAMESPACE ################
+################ UNDOCUMENTED METHODS ################
 
-# don't use these - they belong in /dev/null
-
+# usage:
 # $config = [ { name => '', data => [], before => '' }, { ... }, ... ];
 sub add_cols {
 	my ($self,$config) = @_;
@@ -518,7 +517,10 @@ sub _build_body_row {
 			$self->{$name}->{'td'}    || $self->{'body'}->{'td'}, 
 			$self->{'global'}->{'td'} || $self->{'body'}->{'td'},
 		);
-		my $cdata = $row->[$_] =~ /^.+$/ ? $row->[$_] : $self->{'null_value'};
+		my $cdata = ($row->[$_] and $row->[$_] =~ /^.+$/)
+			? $row->[$_]
+			: $self->{'null_value'}
+		;
 
 		$self->{'current_col'} = $name;
 
