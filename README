@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	1.16 - incremented copyright date
 	1.14 - extremely minor fix in test.pl
 	1.12 - bug fix in _build_body_row()
 	1.10 - inheritable attributes, bux fix in set_col_colors()

@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.14';
+$VERSION = '1.16';
 
 use DBI;
 use Carp;
@@ -1447,7 +1447,7 @@ Jeffrey Hayes Anderson <captvanhalen@yahoo.com>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2002 Jeffrey Hayes Anderson.
+Copyright (c) 2003 Jeffrey Hayes Anderson.
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation

@@ -1,5 +1,7 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.16    - incremented copyright date
+
 1.14    - finally fixed 1..1 in test.pl ... sillly /me
 
 1.12    - fixed bugs in _build_body_row(): 0's were being replaced
