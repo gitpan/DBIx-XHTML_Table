@@ -1,5 +1,13 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+0.98
+	- set_row_colors() now uses style, can use old bgcolor
+	- all methods that normally returned void now return $self
+	  (this allows stacking methods)
+	- changed output() arguments to a hash ref
+	- modify_tag() now recognizes 'style' attribute values as
+	  hash references themselves
+
 0.97
 	- deprecated get_table() for output() - same results
 	- added automatic header ucfirst and 'no_ucfirst' to turn off

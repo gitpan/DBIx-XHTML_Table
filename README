@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	0.98 - styles as hashes, set_row_colors() uses styles now
 	0.97 - deprecated get_table() for output()
 	0.96 - added set_pk(), get_current_row(), and get_current_col()
 	     - deprecated map_col() for map_cell()
