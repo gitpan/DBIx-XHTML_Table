@@ -18,3 +18,29 @@ print "ok 1\n";
 # (correspondingly "not ok 13") depending on the success of chunk 13
 # of the test code):
 
+# test connect
+print "Test database? [n] ";
+my $answer = <>;
+
+if ($answer =~ /y/i) {
+	my @creds = 'DBI';
+
+	foreach (qw(vendor database host user pass)) {
+		print ucfirst $_, ': ';
+		print '(i.e. mysql) ' if /vendor/;
+		my $ans = <>;
+		push @creds, $ans;
+	}
+	chomp @creds;
+
+	eval {
+		DBI->connect(
+			join(':',@creds[0..3]),
+			@creds[4,5],
+			{ RaiseError => 1 }
+		);
+	};
+
+	my $ok = ($@ =~ /\w/) ? "2 not ok" : "ok 2";
+	print $ok, "\n";
+}

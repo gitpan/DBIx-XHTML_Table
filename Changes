@@ -1,5 +1,15 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+0.99
+	- deprecated modify_tag() for modify() - same results
+	- deprecated no_whitespace output() attrib for no_indent
+	- set_row_colors() now only works for entire rows
+	  added set_col_colors() to handle columns, also
+	  refactored both subs to use modify_tag() instead
+	- bug fix: default ucfirst on headers overrode map_head()
+	- bug fix: modify_tag() on 'td' with 'body' works now
+	- added MIT license
+
 0.98
 	- set_row_colors() now uses style, can use old bgcolor
 	- all methods that normally returned void now return $self

@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+    0.99 - deprected modify_tag() for modify(), fixed header ucfirst bug
 	0.98 - styles as hashes, set_row_colors() uses styles now
 	0.97 - deprecated get_table() for output()
 	0.96 - added set_pk(), get_current_row(), and get_current_col()
@@ -30,8 +31,6 @@ AUTHOR
     Jeffrey Hayes Anderson <captvanhalen@yahoo.com>
 
 COPYRIGHT
-    Copyright (c) 2001 Jeffrey Hayes Anderson. All rights
-    reserved.  DBIx::XHTML_Table is free software; it may be
-    copied, modified, and/or redistributed under the same
-    terms as Perl itself.
+    Copyright (c) 2002 Jeffrey Hayes Anderson.
+	See source POD for additional copyright information.
 
