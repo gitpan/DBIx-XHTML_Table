@@ -1,5 +1,9 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.00    - added support for specifying columns by number
+	- fixed map_cell bug - second call would wipe out first
+	- experimenting with tests ... :/
+
 0.99
 	- deprecated modify_tag() for modify() - same results
 	- deprecated no_whitespace output() attrib for no_indent

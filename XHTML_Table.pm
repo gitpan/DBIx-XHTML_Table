@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.99';
+$VERSION = '1.00';
 
 use DBI;
 use Carp;
@@ -21,8 +21,7 @@ use vars qw(%ESCAPES $T $N);
 
 # see POD for documentation
 sub new {
-	my $proto = shift;
-	my $class = ref($proto) || $proto;
+	my $class = shift;
 	my $self  = {
 		null_value => '&nbsp;',
 	};
@@ -39,7 +38,7 @@ sub new {
 	} 
 	elsif (ref $_[0] eq 'ARRAY') {
 		# go ahead and accept a pre-built 2d array ref
-		$self->_do_black_magic(shift);
+		$self->_do_black_magic(@_);
 	}
 	else {
 		# create my own db handle
@@ -47,7 +46,6 @@ sub new {
 		carp $@ and return undef if $@;
 	}
 
-	#return $self->{'dbh'}->ping ? $self : undef;
 	return $self;
 }
 
@@ -55,8 +53,8 @@ sub new {
 
 sub exec_query {
 	my ($self,$sql,$vars) = @_;
-	my $i = 0;
 
+	carp "" unless $self->{'dbh'};
 	eval {
 		$self->{'sth'} = $self->{'dbh'}->prepare($sql);
 		$self->{'sth'}->execute(@$vars);
@@ -65,8 +63,8 @@ sub exec_query {
 
 	# store the results
 	$self->{'fields_arry'} = [ map { lc }         @{$self->{'sth'}->{'NAME'}} ];
-	$self->{'fields_hash'} = { map { $_ => $i++ } @{$self->{'fields_arry'}} };
-	$self->{'rows'}        = $self->{'sth'}->fetchall_arrayref;
+	$self->{'fields_hash'} = $self->_reset_fields_hash();
+	$self->{'rows'}        = $self->{'sth'}->fetchall_arrayref();
 	carp "no data was returned from query" unless @{$self->{'rows'}};
 
 	if (exists $self->{'pk'}) {
@@ -75,11 +73,6 @@ sub exec_query {
 	}
 
 	return $self;
-}
-
-sub get_table { 
-	carp "get_table() is deprecated. Use output() instead";
-	output(@_);
 }
 
 sub output {
@@ -105,12 +98,7 @@ sub output {
 		}
 	}
 
-	return $self->_build_table;
-}
-
-sub modify_tag {
-	carp "modify_tag() is deprecated. Use modify() instead";
-	modify(@_);
+	return $self->_build_table();
 }
 
 sub modify {
@@ -119,7 +107,8 @@ sub modify {
 
 	# apply attributes to specified columns
 	if (ref $attribs eq 'HASH') {
-		$cols = [$cols = $cols || 'global'] unless ref $cols eq 'ARRAY';
+		$cols ||= 'global';
+		$cols = $self->_refinate($cols);
 
 		while (my($attr,$val) = each %$attribs) {
 			$self->{lc $_}->{$tag}->{$attr} = $val for @$cols;
@@ -147,14 +136,8 @@ sub map_cell {
 	carp "map_cell() is being ignored - no data" and return $self unless $self->{'rows'};
 
 	$cols = $self->_refinate($cols);
-	$self->{'map_cell'} = { cols => $cols, 'sub' => $sub };
-
+	$self->{'map_cell'}->{$_} = $sub for @$cols;
 	return $self;
-}
-
-sub map_col { 
-	carp "map_col() is deprecated. Use map_cell() instead";
-	map_cell(@_);
 }
 
 sub map_head {
@@ -172,29 +155,6 @@ sub add_col_tag {
 	my ($self,$attribs) = @_;
 	$self->{'global'}->{'colgroup'} = {} unless $self->{'colgroups'};
 	push @{$self->{'colgroups'}}, $attribs;
-
-	return $self;
-}
-
-sub set_group {
-	my ($self,$group,$nodup,$value) = @_;
-	$self->{'group'} = lc $group;
-	$self->{'nodup'} = $value || $self->{'null_value'} if $nodup;
-
-	my $index = $self->{'fields_hash'}->{$group} || 0;
-
-	# initialize the first 'repetition'
-	my $rep   = $self->{'rows'}->[0]->[$index];
-
-	# loop through the whole rows array, storing
-	# the points at which a new group starts
-	for my $i (0..$self->get_row_count - 1) {
-		my $new = $self->{'rows'}->[$i]->[$index];
-		push @{$self->{'body_breaks'}}, $i - 1 unless ($rep eq $new);
-		$rep = $new;
-	}
-
-	push @{$self->{'body_breaks'}}, $self->get_row_count - 1;
 
 	return $self;
 }
@@ -231,10 +191,6 @@ sub calc_subtotals {
 	}
 
 	return $self;
-}
-
-sub reset {
-	my ($self) = @_;
 }
 
 sub set_row_colors {
@@ -282,18 +238,43 @@ sub set_col_colors {
 	return $self;
 }
 
-sub set_null_value {
-	my ($self,$value) = @_;
-	$self->{'null_value'} = $value;
+sub set_group {
+	my ($self,$group,$nodup,$value) = @_;
+	$self->{'nodup'} = $value || $self->{'null_value'} if $nodup;
+	$self->{'group'} = $group = $group =~ /^\d+$/ 
+		? $self->_lookup_name($group) || lc $group : lc $group;
+
+	my $index = $self->{'fields_hash'}->{$group} || 0;
+
+	# initialize the first 'repetition'
+	my $rep = $self->{'rows'}->[0]->[$index];
+
+	# loop through the whole rows array, storing
+	# the points at which a new group starts
+	for my $i (0..$self->get_row_count - 1) {
+		my $new = $self->{'rows'}->[$i]->[$index];
+		push @{$self->{'body_breaks'}}, $i - 1 unless ($rep eq $new);
+		$rep = $new;
+	}
+
+	push @{$self->{'body_breaks'}}, $self->get_row_count - 1;
+
 	return $self;
 }
 
 sub set_pk {
 	my $self = shift;
 	my $pk   = shift || 'id';
-	warn "too late to set primary key" if exists $self->{'rows'};
+	$pk = $pk =~ /^\d+$/ ? $self->_lookup_name($pk) || $pk : $pk;
+	carp "too late to set primary key" if exists $self->{'rows'};
 	$self->{'pk'} = lc $pk;
 
+	return $self;
+}
+
+sub set_null_value {
+	my ($self,$value) = @_;
+	$self->{'null_value'} = $value;
 	return $self;
 }
 
@@ -317,8 +298,69 @@ sub get_current_col {
 	return shift->{'current_col'};
 }
 
+sub reset {
+	my ($self) = @_;
+}
+
+###################### DEPRECATED ##################################
+
+# use AUTOLOAD instead?
+
+sub get_table { 
+	carp "get_table() is deprecated. Use output() instead";
+	output(@_);
+}
+
+sub modify_tag {
+	carp "modify_tag() is deprecated. Use modify() instead";
+	modify(@_);
+}
+
+sub map_col { 
+	carp "map_col() is deprecated. Use map_cell() instead";
+	map_cell(@_);
+}
+
+################ ABOMINATIONS TO THE DBIx NAMESPACE ################
+
+# don't use these - they belong in /dev/null
+
+# $config = [ { name => '', data => [], before => '' }, { ... }, ... ];
+sub add_cols {
+	my ($self,$config) = @_;
+	$config = [$config] unless ref $config eq 'ARRAY';
+
+	foreach (@$config) {
+		next unless ref $_ eq 'HASH';
+		my ($name,$data,$pos) = @$_{(qw(name data before))};
+		my $max_pos = $self->get_col_count();
+
+		$pos   = $self->_lookup_index($pos || '') unless $pos && $pos =~ /^\d+$/;
+		$pos ||= $max_pos;
+		$pos   = $max_pos if $pos > $max_pos;
+		$data  = [$data] unless ref $data eq 'ARRAY';
+
+		splice(@{$self->{'fields_arry'}},$pos,0,$name);
+		$self->_reset_fields_hash();
+		splice(@$_,$pos,0,_rotate($data)) for (@{$self->{rows}});
+	}
+}
+
+sub drop_cols {
+	my ($self,$cols) = @_;
+	$cols = $self->_refinate($cols);
+
+	foreach my $col (@$cols) {
+		my $index = delete $self->{'fields_hash'}->{$col};
+		splice(@{$self->{'fields_arry'}},$index,1);
+		$self->_reset_fields_hash();
+		splice(@$_,$index,1) for (@{$self->{'rows'}});
+	}
+}
 
 #################### UNDER THE HOOD ################################
+
+# repeat: it only looks complicated
 
 sub _build_table {
 	my ($self)  = @_;
@@ -406,14 +448,12 @@ sub _build_body {
 	my $beg      = 0;
 	my $output;
 
-	# if a group was not set via set_group(),
-	# then use the entire 2-d array
+	# if a group was not set via set_group(), then use the entire 2-d array
 	my @indicies = exists $self->{'body_breaks'}
 		? @{$self->{'body_breaks'}}
 		: ($self->get_row_count - 1);
 
-	# the skinny here is to grab a slice
-	# of the rows, one for each group
+	# the skinny here is to grab a slice of the rows, one for each group
 	foreach my $end (@indicies) {
 		my $body_group = $self->_build_body_group([@{$self->{'rows'}}[$beg..$end]]) || '';
 		my $attribs    = $self->{'global'}->{'tbody'} || $self->{'body'}->{'tbody'};
@@ -453,13 +493,13 @@ sub _build_body_row {
 	my ($self,$row,$nodup,$pk) = @_;
 
 	my $group  = $self->{'group'};
-	my $index  = $self->{'fields_hash'}->{$group} if $group;
+	my $index  = $self->_lookup_index($group) if $group;
 	my $output = $N;
 
 	$self->{'current_row'} = $pk;
 
 	for (0..$#$row) {
-		my $name    = $self->{'fields_arry'}->[$_];
+		my $name    = $self->_lookup_name($_);
 		my $attribs = $self->{$name}->{'td'} || $self->{'body'}->{'td'} || $self->{'global'}->{'td'};
 		my $cdata   = $row->[$_] || $self->{'null_value'};
 
@@ -467,7 +507,7 @@ sub _build_body_row {
 
 		$cdata = ($nodup and $index == $_)
 			? $self->{'nodup'}
-			: _map_it($self->{'map_cell'},$cdata,$name)
+			: _map_it($self->{'map_cell'}->{$name},$cdata)
 		;
 
 		$output .= $T.$T . _tag_it('td', $attribs, $cdata) . $N;
@@ -482,7 +522,7 @@ sub _build_body_subtotal {
 	return '' unless $row;
 
 	for (0..$#$row) {
-		my $name    = $self->{'fields_arry'}->[$_];
+		my $name    = $self->_lookup_name($_);
 		my $attribs = $self->{$name}->{'th'} || $self->{'body'}->{'th'} || $self->{'global'}->{'th'};
 		my $sum     = ($row->[$_]);
 
@@ -518,7 +558,8 @@ sub _build_foot_row {
 	my $row    = $self->{'totals'};
 
 	for (0..$#$row) {
-		my $name    = $self->{'fields_arry'}->[$_];
+		my $name    = $self->_lookup_name($_);
+		print STDERR "name = '$name'\n";
 		my $attribs = $self->{$name}->{'th'} || $self->{'foot'}->{'th'} || $self->{'global'}->{'th'};
 		my $sum     = ($row->[$_]);
 
@@ -548,7 +589,6 @@ sub _tag_it {
 				my $value  = (ref $v->{$_} eq 'ARRAY') 
 					? _rotate($v->{$_}) 
 					: $v->{$_};
-				#"$attrib: $value"
 				join(': ',$attrib,$value||'');
 			} keys %$v) . ';';
 		}
@@ -560,16 +600,9 @@ sub _tag_it {
 
 # used by map_cell() and map_head()
 sub _map_it {
-	my ($hash,$datum,$col) = @_;
-	return $datum unless $hash;
-
-	my $cols = $hash->{'cols'};
-	my $sub  = $hash->{'sub'};
-
-	foreach (@$cols) {
-		$datum = $sub->($datum) if $_ eq $col;
-	}
-	return $datum;
+	my ($sub,$datum) = @_;
+	return $datum unless $sub;
+	return $datum = $sub->($datum);
 }
 
 # used by calc_totals() and calc_subtotals()
@@ -605,17 +638,32 @@ sub _rotate {
 # always returns an array ref
 sub _refinate {
 	my ($self,$ref) = @_;
-	@$ref = @{$self->{'fields_arry'}} unless defined $ref;
+	$ref = [@{$self->{'fields_arry'}}] unless $ref || $ref == 0;
 	$ref = [$ref] unless ref $ref eq 'ARRAY';
-	return $ref; # make sure nothing changes $ref !!
+	return [map {$_ =~ /^\d+$/ ? $self->_lookup_name($_) || $_ : $_} @$ref];
+}
+
+sub _lookup_name {
+	my ($self,$index) = @_;
+	return $self->{'fields_arry'}->[$index];
+}
+
+sub _lookup_index {
+	my ($self,$name) = @_;
+	return $self->{'fields_hash'}->{$name};
+}
+
+sub _reset_fields_hash {
+	my $self = shift;
+	my $i    = 0;
+	$self->{fields_hash} = { map { $_ => $i++ } @{$self->{fields_arry}} };
 }
 
 # assigns a non-DBI supplied data table (2D array ref)
 sub _do_black_magic {
-	my ($self,$ref) = @_;
-	my $i = 0;
-	$self->{'fields_arry'} = [ map { lc         } @{ shift @$ref } ];
-	$self->{'fields_hash'} = { map { $_ => $i++ } @{$self->{'fields_arry'}} };
+	my ($self,$ref,$headers) = @_;
+	$self->{'fields_arry'} = $headers ? [@$headers] : [ map { lc } @{ shift @$ref } ];
+	$self->{'fields_hash'} = $self->_reset_fields_hash();
 	$self->{'rows'}        = $ref;
 }
 
@@ -632,7 +680,7 @@ __END__
 
 =head1 NAME
 
-DBIx::XHTML_Table - Create XHTML tables from SQL queries
+DBIx::XHTML_Table - SQL query result set to XHTML table.
 
 =head1 SYNOPSIS
 
@@ -651,28 +699,33 @@ DBIx::XHTML_Table - Create XHTML tables from SQL queries
 
   print $table->output();
 
-  # and much more, read on . . .
+  # stackable method calls:
+  print DBIx::XHTML_Table
+    ->new($dsrc,$usr,$pass)
+    ->exec_query('select foo,baz from bar')
+    ->output();
+
+  # and much more - read on ...
 
 =head1 DESCRIPTION
 
 B<DBIx::XHTML_Table> is a DBI extension that creates an XHTML
-table from a database query. It was created to fill the gap
-between fetching rows from a database and transforming them
-into a web browser renderable table. DBIx::XHTML_Table wraps
-each column from a row in <td> tags, each row in <tr> tags,
-is capable of grouping rows into <tbody> tags, automatically
-adds column names wrapped in <th> tags (that are wrapped in
-<thead> tags), also recogonizes <tfoot>, <caption>, <col>,
-and <colgroup>, wraps the whole thing in <table> tags, and
-provides a means to specify attributes for all those tags.
+table from a database query result set. It was created to fill
+the gap between fetching rows from a database and transforming
+them into a web browser renderable table. DBIx::XHTML_Table is
+intended for programmers who want the responsibility of presenting
+(decorating) data, easily. This module is meant to be used in situations
+where the concern for presentation and logic seperation is overkill.
+Providing logic or editable data is beyond the scope of this module,
+but it is capable of doing such.
 
 =head1 HOME PAGE
 
 The DBIx::XHTML_Table homepage is now available, but still under
-construction. A partially complete FAQ and CookBook are available
-there, as well as the Tutorial, download and support info: 
+construction. A partially complete FAQ and Cookbook are available
+there, as well as the Tutorial, Download and Support info: 
 
-  http://jeffa.perlmonk.org/XHTML_Table/
+  http://unlocalhost.com/XHTML_Table/
 
 =head1 CONSTRUCTOR
 
@@ -684,7 +737,7 @@ there, as well as the Tutorial, download and support info:
  
 Note - all optional arguments are denoted inside brackets.
 
-The constuctor will simply pass the credentials to the DBI::connect()
+The constuctor will simply pass the credentials to the DBI::connect
 method - read the DBI documentation as well as the docs for your
 corresponding DBI driver module (DBD::Oracle, DBD::Sysbase,
 DBD::mysql, etc).
@@ -694,10 +747,14 @@ DBD::mysql, etc).
     'DBI:mysql:database:host',   # datasource
     'user',                      # user name
     'password',                  # user password
-  );
+  ) or die "couldn't connect to database";
 
-The last argument, $attribs, is optional - it should be a
-hash reference similar to this:
+DBIx::XHTML_Table turns the 'RaiseError' attribute on when
+it calls DBI::connect. This
+
+The last argument, $attribs, is an optional hash reference
+and should not be confused with the DBI::connect method's
+similar 'attributes' hash reference.'
 
   # valid example for last argument
   my $attribs = {
@@ -712,11 +769,16 @@ hash reference similar to this:
     },
   };
 
+  my $table = DBIx::XHTML_Table->new(
+  	$dsource,$user,$pass,$attribs
+  ) or die "couldn't connect to database";
+
 But it is still experimental and unpleasantly limiting.
 The purpose of $table_attribs is to bypass having to
 call modify() multiple times. However, if you find
 yourself calling modify() more than 4 or 5 times,
-then DBIx::XHTML_Table might be the wrong tool.
+then DBIx::XHTML_Table might be the wrong tool. I recommend
+HTML::Template or Template-Toolkit, both available at CPAN.
 
 =item B<style_2>
 
@@ -727,40 +789,50 @@ and destroyed 'behind the scenes'. If you need to keep the database
 connection open after the XHTML_Table object is destroyed, then
 create one yourself and pass it to the constructor:
 
-  my $DBH   = DBI->connect($dsource,$usr,$passwd) || die;
-  my $table = DBIx::XHTML_Table->new($DBH);
+  my $dbh   = DBI->connect($dsource,$usr,$passwd,{RaiseError=>1});
+  my $table = DBIx::XHTML_Table->new($dbh);
     # do stuff
-  $DBH->disconnect;
+  $dbh->disconnect;
 
 =item B<style_3>
 
-  $obj_ref = new DBIx::XHTML_Table($array_ref[,$attribs)
+  $obj_ref = new DBIx::XHTML_Table($rows[,$headers])
 
 The final style allows you to bypass a database altogether if need
 be. Simply pass a LoL (list of lists) such as the one passed back
-from the DBI method C<selectall_arrayref()>:
+from the DBI method C<selectall_arrayref()>. The first row will be
+treated as the table heading. You are responsible for supplying the
+column names. Here is one way to create a table after modifying the
+result set from a database query:
 
-  my $ref = [
+  my $dbh  = DBI->connect($dsource,$usr,$passwd);
+  my $sth = $dbh->prepare('select foo,baz from bar');
+  $sth->execute();
+
+  # order is essential here
+  my $headers = $sth->{'NAME'};
+  my $rows    = $sth->fetchall_arrayref();
+
+  # do something to $rows
+
+  my $table = DBIx::XHTML_Table->new($rows,$headers);
+
+If $headers is not supplied, then the first row from the
+first argument will be shifted off and used instead.
+While obtaining the data from a database is the entire
+point of this module, there is nothing stopping you from
+simply hard coding it:
+
+  my $rows = [
   	[ qw(Head1 Head2 Head3) ],
 	[ qw(foo bar baz)       ],
 	[ qw(one two three)     ],
 	[ qw(un deux trois)     ]
   ];
 
-  my $table = DBIx::XHTML_Table->new($ref);
+  my $table = DBIx::XHTML_Table->new($rows);
 
-The only catch is that the first row will be treated as the table
-heading - be sure and supply one even if you don't want to display
-a table heading.(you can bypass the printing of the heading
-via the output() method). The first row of the the LoL will be
-shifted off and used as the 'fields array'. You can use the names
-you provided in the first row to specify which columns to format
-later with the modify() method. Keep the names unique like a database
-does and all will work as described.
-
-Note that I only added this feature because it was too easy and simple
-not to. The intention of this module is that it be used with DBI, but
-who says you have to follow the rules.
+And that is why $headers is optional.
 
 =back
 
@@ -906,11 +978,14 @@ XHTML way with CSS styles:
      }
   });
 
+See the set_row_color() and set_col_color() methods for more info.
+
 The last argument to modify() is optional and can either
 be a scalar
 representing a single column or area, or an array reference
 containing multilple columns or areas. The columns will be
-the corresponding names of the columns from the SQL query.
+the corresponding names of the columns from the SQL query,
+or their anticipated index number, starting at zero.
 The areas are one of three values: HEAD, BODY, or FOOT.
 The columns and areas you specify are case insensitive.
 
@@ -924,10 +999,10 @@ The columns and areas you specify are case insensitive.
      style => 'text-align: center'
   },'foo');
 
-  # <td> tags in columns BAR and BAZ
+  # <td> tags for the second and third columns (indexes 1 and 2)
   $table->modify(td => {
      style => 'text-align: right'
-  },['bar','baz']);
+  },[1,2]);
 
 You cannot currently mix areas and columns in the same
 method call.
@@ -1009,25 +1084,28 @@ to a list of scalars) to apply this subroutine to. Example:
   # uppercase the data in column DEPARTMENT
   $table->map_cell( sub { return uc shift }, 'department');
 
+  # uppercase the data in the fifth column
+  $table->map_cell( sub { return uc shift }, 4);
+
 One temptation that needs to be addressed is using this method to
 color the cdata inside a <td> tag pair. For example:
 
   # don't be tempted to do this
   $table->map_cell(sub {
     return qq|<font color="red">| . shift . qq|</font>|;
-  }, 'first_name');
+  }, [qw(first_name last_name)]);
 
   # when CSS styles will work
   $table->modify(td => {
 	 style => 'color: red',
-  }, 'first_name');
+  }, [qw(first_name last_name)]);
 
 Note that the get_current_row() and get_current_col()
 can be used inside the sub reference. See set_pk() below
 for an example.
 
-All columns are used if none are specified, This
-method does not permantly change the data. Also,
+All columns are used if none are specified, and you can
+specify index number(s) as well as name(s).  Also,
 exec_query() must be called and data must be returned
 from the database prior to calling this method, otherwise
 the call back will be ignored and a warning will be generated.
@@ -1080,7 +1158,7 @@ such as 'bgcolor' or 'width'.
 This method is just a more convenient way to do the
 same thing with the modify() modify.
 
-See http://jeffa.perlmonk.org/XHTML_Table/cookbook.html#Coloring_the_table
+See http://unlocalhost.com/XHTML_Table/cookbook.html#5
 for more information on coloring the table.
 
 =item B<set_col_colors>
@@ -1107,7 +1185,7 @@ instead of the CSS style 'color'. For example, you
 could use 'class' or even deprecated HTML attributes
 such as 'bgcolor' or 'width'.
 
-See http://jeffa.perlmonk.org/XHTML_Table/cookbook.html#Coloring_the_table
+See http://unlocalhost.com/XHTML_Table/cookbook.html#5
 for more information on coloring the table.
 
 =item B<set_null_value>
@@ -1183,7 +1261,7 @@ then horizontal lines will only appear at the point where the 'grouped'
 rows change. This had to be implemented in the past with <table>'s
 inside of <table>'s. Much nicer! Add this for a nice coloring trick:
 
-  # works with or without setting a group
+  # this works with or without setting a group, by the way
   $table->modify(tbody => {
 	  bgcolor => [qw(insert rotating colors here)],
   });
@@ -1204,7 +1282,7 @@ for further details.
 
   $table->calc_subtotals([$cols,$mask])
 
-Computes subtotals for specified columns. It is manditory that you
+Computes subtotals for specified columns. It is mandatory that you
 first specify a group via set_group() before you call this method.
 Each subtotal is tallied from the rows that have the same value
 in the column that you specified to be the group. At this point, only
