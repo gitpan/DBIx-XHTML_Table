@@ -1,4 +1,4 @@
-package XHTML_Table;
+package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
@@ -511,19 +511,20 @@ DBIx::XHTML_Table - Create XHTML tables from SQL queries
 
   use DBIx::XHTML_Table;
 
-  my $table = XHTML_Table->new(
-    $datasource, $username, $password
-  ) || die "could not connect to database\n";
+  # database credentials - fill in the blanks
+  my ($dsource,$user,$pass) = ();
 
+  # create the object
+  my $table = new DBIx::XHTML_Table($dsource, $user, $pass) 
+  			|| die "could not connect to database\n";
+
+  # grab some data
   $table->exec_query("
-	SELECT TITLE,ALBUM,YEAR,GENRE
+	SELECT ARTIST,ALBUM,TITLE,YEAR,GENRE 
 	FROM MP3.SONGS
-	WHERE YEAR=? AND GENRE=?
-	ORDER BY ARTIST
-  ",[$year,$genre]);
-
-  # save a raw copy for later
-  my $raw = $table->get_table;
+	WHERE YEAR=? AND GENRE=? 
+	ORDER BY ARTIST,YEAR,TITLE
+  ",[$year,$genre]);    # bind vars for demonstration only
 
   # start tweaking the table
   $table->modify_tag('TABLE',{
@@ -531,50 +532,42 @@ DBIx::XHTML_Table - Create XHTML tables from SQL queries
 	  cellspacing => 0,
   });
 
-  # modify all <THEAD> <TH> tags
+  # modify all <TH> tags
   $table->modify_tag('TH',{
 	  bgcolor => 'black',
 	  style   => 'Color: white;',
-  }, 'header');
+  });
 
   # modify only <TD> tags for TITLE column
   $table->modify_tag('TD',{
-	  align   => 'right',	# although align is deprecated
+	  align   => 'right',     # although align is deprecated
 	  bgcolor => '#ABACAB',
-  },'title');
+  }, 'title');
 
-  # modify only <TD> tags for ALBUM and YEAR columns
-  # columns -  in this case, each column will permuate
-  # the colors and the alignment value
+  # values that are array refs will be rotated horizontally
   $table->modify_tag('TD',{
 	  width   => 200,
-	  align   => [qw(left center right)],
-	  bgcolor => [qw(green blue red)],
-  },[qw(album year)]);
+	  align   => [qw(left right)],
+	  bgcolor => [qw(blue red)],
+  }, [qw(album year)]);
 
-  # impress the boss with rotating row colors
-  # (this would override the above method)
+  # this rotates colors vertically down the columns
   $table->set_row_colors(
 	["#D0D0D0", "#B0B0B0")],
-	[qw(album year)],
+	[qw(artist genre)],
   );
 
-  # suppress duplicates on a group
-  $table->set_group('album',1);
+  # set the most general column as the group
+  $table->set_group('artist');  # can also suppress duplicates
 
-  # since we can, sum up the years column
-  # totals will be wrapped in <TH>'s belonging to <TFOOT/>
-  # optional sprintf mask can be used for formatting
-  $table->calc_totals('year','%.02f');
+  # sum up the years column
+  $table->calc_totals('year');
 
-  # and if you have a well behaved group set . . .
-  $table->calc_subtotals('year','%.02f');
+  # and if you have set a group . . .
+  $table->calc_subtotals('year');
 
   # print out the complete table
   print $table->get_table;
-
-  # compare it with the raw version
-  print $raw;
 
 =head1 DESCRIPTION
 
@@ -586,17 +579,17 @@ generated, you just have to specify what attributes they
 will use.
 
 This module was created to fill a need for a quick and easy way to
-create on the fly XHTML tables from SQL queries, for the purpose
+create 'on the fly' XHTML tables from SQL queries for the purpose
 of 'quick and dirty' reporting. If you find yourself needing more
 power over the display of your report, you should look into
 templating methods such as B<HTML::Template> or B<Template-Toolkit>.
 Another viable substitution for this module is to use B<DBIx::XML_RDB>
-and XSL stylesheets, but some browsers are still not XML compliant,
+and XSL stylesheets. However, some browsers are still not XML compliant,
 and XHTML_Table has the advantage of displaying at least something
 on browsers that are not XML or XHTML compliant. At the worst, only
 the XHTML tags will be ignored, and not the content of the report.
 
-The user is highly recommened to become familiar with the rules and
+The user is highly recommended to become familiar with the rules and
 structure of the new XHTML tags used for tables.  A good, terse
 reference can be found at
 http://www.w3.org/TR/REC-html40/struct/tables.html
@@ -613,27 +606,27 @@ the chickens and through a small gutter (just keep scrolling down).
 
   $obj_ref = new DBIx::XHTML_Table($dsource,$usr,$passwd)
 
-Construct a new XHTML_Table object by supplying the database connect
-information: datasource, user, password: 
+Construct a new XHTML_Table object by supplying the database
+credentials: datasource, user, password: 
 
-  my $table = new XHTML_Table($dsource,$usr,$passwd) || die;
+  my $table = new DBIx::XHTML_Table($dsource,$usr,$passwd) || die;
 
 The constuctor will simply pass the arguments to the connect()
 method from F<DBI.pm> - see L<DBI> as well as the one for your
 corresponding DBI driver module - DBD::Oracle, DBD::Sysbase, 
-DBD::mysql, etc.
+DBD::mysql, etc. The explanation of $dsource lies therein.
 
 =item B<style 2>
 
   $obj_ref = new DBIx::XHTML_Table($DBH)
 
 The previous signature will result in the database handle
-being created and destroyed behind the scenes. If you need
+being created and destroyed 'behind the scenes'. If you need
 to keep the database connection open, create one yourself
 and pass it to the constructor:
 
   my $DBH   = DBI->connect($dsource,$usr,$passwd) || die;
-  my $table = new XHTML_Table($DBH);
+  my $table = new DBIx::XHTML_Table($DBH);
     # do stuff
   $DBH->disconnect;
 
@@ -656,20 +649,20 @@ bind variable or an array reference for multiple bind vars:
       SELECT BAR,BAZ FROM FOO
 	  WHERE BAR = ?
 	  AND   BAZ = ?
-  ",[$foo,$bar]);
+  ",[$foo,$bar])    || die 'query failed';
 
 Consult L<DBI> for more details on bind vars.
 
 After the query successfully exectutes, the results will be
 stored interally as a 2-D array. The XHTML table tags will
-not be generated until B<get_table> is invoked, and the results
+not be generated until B<get_table()> is invoked, and the results
 can be modified via B<map_column()>.
 
 =item B<get_table>
 
-  $table->get_table($sans_title,$sans_whitespace)
+  $scalar = $table->get_table($sans_title,$sans_whitespace)
 
-Creates and returns the XHTML table. The first argument is a
+Renders and returns the XHTML table. The first argument is a
 non-zero, defined value that suppresses the column titles. The
 column footers can be suppressed by not calculating totals, and
 the body can be suppressed by an appropriate SQL query. The
@@ -689,51 +682,57 @@ no newline(\n) and tab(\t) charatcters.
   $table->modify_tag($tag,$args,[$cols])
 
 This method will store a 'memo' of what attributes you have assigned
-to various tags within the table. When the table is rendered, any
+to various tags within the table. When the table is rendered, these
 memos will be used to create attributes. The first argument is the
 name of the tag you wish to modify the attributes of. You can supply
 any tag name you want without fear of halting the program, but the
 only tag names that are handled are <TABLE> <CAPTION> <THEAD> <TFOOT>
 <TBODY> <COLGROUP> <COL> <TR> <TH> and <TD>. The tag name will be
-converted to uppercase, so you can use any case you want.
+converted to uppercase, so you can practice safe case insensitivity.
 
 The next argument is a reference to a hash that contains the
 attributes you wish to apply to the tag. For example, this
-set attributes for the <TABLE> tag:
+sets the attributes for the <TABLE> tag:
 
   $table->modify_tag('table',{
       border => 2,
       width  => '100%',
       foo    => 'bar',
-  }),
+  });
 
-Each key in the hash will be uppercased, and each value will be 
+  # a more Perl-ish way
+  $table->modify_tag(table => {
+      border => 2,
+      width  => '100%',
+      foo    => 'bar',
+  });
+
+Each KEY in the hash will be upper-cased, and each value will be 
 surrounded in quotes. The foo=>bar entry illustrates that typos
 in attribute names will not be caught by this module. Any
 valid XHTML attribute can be used. Yes. Even JavaScript.
 
-You can even use an array reference as the value for one of
-the keys:
+You can even use an array reference as the key values:
 
   $table->modify_tag('td',{
       bgcolor => [qw(red purple blue green yellow orange)],
   }),
 
-Now each <TD> tag will get a color from the list, one at
+Each <TD> tag will get a color from the list, one at
 time. When the last index is reached (orange), the next
 <TD> tag will get the first index (red), continuing just
 like a circular queue until no more <TD> tags are left.
 
 This feature changes attributes in a horizontal fasion,
 each new element is popped from the array every time a
-<TD> tag is created for output. Use B<set_row_color>
+<TD> tag is created for output. Use B<set_row_color()>
 when you need to change colors in a vertical fashion.
 Unfortunately, no method exists to allow other attributes
-besides B<bgcolor> to permutate in a vertical fashion.
+besides BGCOLOR to permutate in a vertical fashion.
 
 The last argument is optional and can either be a scalar
 representing a single column or area, or an array reference
-containing multilple columns or areas.  The columns will be
+containing multilple columns or areas. The columns will be
 the corresponding names of the columns from the SQL query.
 The areas are one of three values: HEADER, BODY, or FOOTER.
 The columns and areas you specify are case insensitive.
@@ -741,7 +740,7 @@ The columns and areas you specify are case insensitive.
   # just modify the titles
   $table->modify_tag('TH',{
       bgcolor => '#bacaba',
-  },'header');
+  }, 'header');
 
 You cannot currently mix areas and columns. 
 
@@ -758,18 +757,12 @@ column or area have been set:
   # except those for column BAR
   $table->modify_tag('TD',{
       class => 'bar',
-  },'bar');
+  }, 'bar');
 
 The order of the execution of the previous two methods calls is
 commutative - it doesn't matter.
 
-The value of an attribute is not limited to a single scalar.
-If you specify an array reference of values, the values will
-be permutated across the tags. This feature is really meant
-to be used by <TD> tags in the BODY area, but other tags may
-produce interesting results. 
-
-A final caveate is setting the <CAPTION> tag. This one breaks
+A final caveat is setting the <CAPTION> tag. This one breaks
 the signature convention:
 
   $table->modfify_tag('CAPTION', $value, $atr);
@@ -795,7 +788,7 @@ tag. Use add_colgroup to add these tags instead.
 Add a new <COL> tag and attributes. The only argument is reference
 to a hash that contains the attributes for this <COL> tag. Multiple
 <COL> tags require multiple calls to this method. The <COLGROUP> tag
-pair will be automagically generated if at least one <COL> tag is
+pair will be automatically generated if at least one <COL> tag is
 added.
 
 Advice: use <COL> and <COLGROUP> tags wisely, don't do this:
@@ -828,13 +821,12 @@ especially if it is for the entire table:
 
   $table->map_col($subroutine,[$cols])
 
-Map a supplied subroutine to all the body <TD> tag's cdata for
+Map a supplied subroutine to all the <TD> tag's cdata for
 the specified columns.  The first argument is a reference to a
 subroutine. This subroutine should shift off a single scalar at
 the beginning, munge it in some fasion, and then return it.
 The second argument is the column or columns to apply this
-subroutine to. The body data will be permanently changed by
-your subroutine. Example: 
+subroutine to. Example: 
 
   # uppercase the data in column DEPARTMENT
   $table->map_col( sub { return uc shift }, 'department');
@@ -861,31 +853,32 @@ into an anchor:
   }, 'category');
   
 This method permantly changes the data, so use it wisely and
-sparringly.
+sparringly. This consequence will be removed in a future version.
 
 =item B<set_row_colors>
 
-  $table->set_row_colors([$colors],[$cols])>
+  $table->set_row_colors([$colors],[$cols])
 
 Assign a list of colors to the body cells for specified columns
-or the entire table if none specified. This is not the same as
-using an array reference as the value for a tag's BGCOLOR attribute.
-That method rotates on each column (think horizontally), this one
-rotates on each row (think vertically). However:
+or the entire table if none specified for the purpose of
+alternating colored rows.  This is not handled in the same
+way that B<modify_tag()> rotates the BGCOLOR attribute.
+That method rotates on each column (think horizontally),
+this one rotates on each row (think vertically). However:
 
   # this:
   $table->modify_tag('td',{
 	  bgcolor => [qw(green green red red)],
-  },[qw(first_name last_name)]);
+  }, [qw(first_name last_name)]);
 
-  # is the same as:
+  # produces the same output as:
   $table->set_row_colors(
-      [qw(red green)],
+      [qw(green red)],
 	  [qw(first_name last_name)],
-  });
+  );
 
 This is a strong possibiliy that this method will be deprecated to
-make way for a method that handles any attribute, not just bgcolor.
+make way for a method that handles any attribute, not just BGCOLOR.
 If so, this method will just hand the arguments to the new method,
 so as not to break any clients.
 
@@ -893,16 +886,15 @@ so as not to break any clients.
 
   $table->set_null_value($new_null_value)
 
-Change to defualt null_value (&nbsp;) Usefull if you are dealing
-with numbers - you can set this zero.
+Change the default null_value (&nbsp;) to something else.
 
 =item B<set_group>
 
-  $table->set_group($column);
+  $table->set_group($column)
 
 Assign one column as the main column. Every time a new row is
 encountered for this column, a <TBODY> tag is written. An optional
-second argument that contains a non-zero value will cause duplicates
+second argument that contains a defined, non-zero value will cause duplicates
 to be permanantly eliminated for this row. An optional third argument
 specifies what value to replace for duplicates, default is &nbsp;
 
@@ -917,8 +909,7 @@ specifies what value to replace for duplicates, default is &nbsp;
 
 Don't assign a column that has a different value each row, choose
 one that is a super class to the rest of the data, for example,
-pick artist over song, since an artist has several songs. This
-method does not modify data.
+pick album over song, since an album consists of songs.
 
 =item B<calc_totals>
 
@@ -978,8 +969,8 @@ flat file, but it will suffice:
   |cartman  Mo         2 |
   +----------------------+
 
-Call this table B<bar>, and let's assign it to database
-B<foo>. The important thing to note about this table is
+Call this table B<BAR>, and let's assign it to database
+B<FOO>. The important thing to note about this table is
 that one column is numbers, and the other two have a 1
 to M relationship with each other (that is, one Parent
 can have many Children). You will probably never encounter
@@ -995,16 +986,16 @@ arguments for connection. Read L<DBI> as well the one
 for the DBD module you installed. 
 
 For this example, assume that we are using MySql on
-a server named boo, and we can connect with the password
-for user baz (remember that our database was 'foo'):
+a server named deadbeef, and we can connect with the password
+for user 'sparky' (the database is 'FOO'):
 
-  my $table = XHTML_Table->new(
-    'DBI:mysql:foo:boo', 'baz', '********'
+  my $table = DBIx::XHTML_Table->new(
+    'DBI:mysql:FOO:deadbeef', 'sparky', '********'
   ) || die "could not connect to database\n";
 
 Step 2. Execute a SQL query
 
-Lets get all the rows, parent first, child second, the
+Let's get all the rows, parent first, child second, the
 take third, all ordered by parent, then child:
 
   $table->exec_query("
@@ -1013,15 +1004,11 @@ take third, all ordered by parent, then child:
     ORDER BY PARENT,CHILD
   ");
 
-Step 3. Make a table
+Step 3. Mold an XHTML table
 
-At this point, we have the means to retrieve a very basic
-XHTML table. Everything will be displayed nice and lined up,
-but it is an eye sore. Start by modifying the <TABLE> tag:
-
-  # to see this example progress from simple to complex
-  # add each of the following snippets, one at a time,
-  # to your code, just before the call to get_table
+At this point, we have the means to retrieve a very basic XHTML
+table. Everything will be displayed nice and lined up, but folks
+want 'pretty bridges'. Start by modifying the <TABLE> tag:
 
   $table->modify_tag('TABLE',{
     border      => 2,
@@ -1031,25 +1018,26 @@ but it is an eye sore. Start by modifying the <TABLE> tag:
     summary     => 'weekly takes',
   });
 
-Now the header row of table column names:
-
-  $table->modify_tag('TH',{
-    bgcolor  => '#CC77C',
-  },'header');
+  print $table->get_table();
 
 Add a caption:
 
   $table->modify_tag('CAPTION','This Weeks Takes');
 
+  # to see this example progress from simple to complex,
+  # add each of the following snippets (one at a time)
+  # to your code, just before the call to get_table()
+
 Let's sum up how much the kids took this week:
 
   $table->calc_totals('take');
 
-Hey, a new column! Let's color it blue:
+The totals appear as the last row, in the FOOTER area.
+Color that row and the HEADER row:
 
   $table->modify_tag('TH',{
-    bgcolor  => '#9999DD',
-  },'footer');
+    bgcolor  => '#98a898',
+  }, [qw(header footer)]);
 
 The duplicate names in the Parent's column is
 annoying, you can pick one and only one column
@@ -1063,10 +1051,10 @@ off of the group you designated, Parent:
 
   $table->calc_subtotals('take');
 
-Even more rows added! Change their color as well:
+More rows added to the BODY area. Change their color:
 
   $table->modify_tag('TH',{
-    bgcolor  => '#AAAAF9',
+    bgcolor  => '#a9b9a9',
   },'body');
 
 Hmmm, now the take column looks off-balance, change
@@ -1078,7 +1066,7 @@ the aligment:
 
 And finally, spice up the body rows with alternating colors:
 
-  $table->set_row_colors(['#FF99FF','#DD99DD']);
+  $table->set_row_colors(['#bacaba','#cbdbcb']);
 
 Experiment, have fun with it. Go to PerlMonks and download
 extremely's Web Color Spectrum Generator and use it suply
@@ -1152,10 +1140,13 @@ to PerlMonk's "extremely" for pointing this out to me.
 
 =head1 CREDITS
 
-Many thanks to the Perl Monks community, in partiuclar to
-'OeufMayo' for convincing me to write XHTML_Table and not
-HTML_Table. Thanks to Matt Sergeant for contributing
-DBIx::XML_RDB, the module that inspired this module.
+=item B<Briac 'OeufMayo' PilprE<eacute>> for the name
+
+=item B<Mark 'extremely' Mills> for guidence and suggestions
+
+=item B<Matt Sergeant> for DBIx::XML_RDB
+
+=item B<Perl Monks> for the education
 
 =head1 SEE ALSO 
 

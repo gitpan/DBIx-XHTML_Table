@@ -1,5 +1,6 @@
 Changes
 Makefile.PL
 MANIFEST
+README
 test.pl
 XHTML_Table.pm
