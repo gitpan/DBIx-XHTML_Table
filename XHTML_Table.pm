@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.12';
+$VERSION = '1.14';
 
 use DBI;
 use Carp;
