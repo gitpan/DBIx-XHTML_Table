@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.01';
+$VERSION = '1.10';
 
 use DBI;
 use Carp;
@@ -42,8 +42,15 @@ sub new {
 	}
 	else {
 		# create my own db handle
-		eval { $self->{'dbh'} = DBI->connect(@_,{RaiseError=>1})};
+		eval { $self->{'dbh'} = DBI->connect(@_) };
 		carp $@ and return undef if $@;
+
+		# to RaiseError or not ... should let user decided
+		#eval { $self->{'dbh'} = DBI->connect(@_,{RaiseError=>1}) };
+#DBIx::XHTML_Table turns the 'RaiseError' attribute on when
+#it calls DBI::connect. This causes your script to die if
+#any errors is raised by the database.
+
 	}
 
 	return $self;
@@ -54,7 +61,7 @@ sub new {
 sub exec_query {
 	my ($self,$sql,$vars) = @_;
 
-	carp "" unless $self->{'dbh'};
+	carp "can't call exec_query(): do database handle" unless $self->{'dbh'};
 	eval {
 		$self->{'sth'} = $self->{'dbh'}->prepare($sql);
 		$self->{'sth'}->execute(@$vars);
@@ -65,7 +72,7 @@ sub exec_query {
 	$self->{'fields_arry'} = [ map { lc }         @{$self->{'sth'}->{'NAME'}} ];
 	$self->{'fields_hash'} = $self->_reset_fields_hash();
 	$self->{'rows'}        = $self->{'sth'}->fetchall_arrayref();
-	carp "no data was returned from query" unless @{$self->{'rows'}};
+	carp "can't call exec_query(): no data was returned from query" unless @{$self->{'rows'}};
 
 	if (exists $self->{'pk'}) {
 		# remove the primary key info from the arry and hash
@@ -78,7 +85,7 @@ sub exec_query {
 
 sub output {
 	my ($self,$config,$no_ws) = @_;
-	carp "can't call method output() - no data" and return '' unless $self->{'rows'};
+	carp "can't call output(): no data" and return '' unless $self->{'rows'};
 
 	# have to deprecate old arguments ...
 	if ($no_ws) {
@@ -207,6 +214,9 @@ sub set_row_colors {
 
 	$self->modify(tr => $ref, 'body');
 
+	# maybe that should be global?
+	#$self->modify(tr => $ref);
+
 	return $self;
 }
 
@@ -221,20 +231,18 @@ sub set_col_colors {
 	# trick #1: truncate colors to cols
 	$#$colors = $#$cols if $#$colors > $#$cols;
 
-	# trick #2: pure eeevil! >:)
-	unless ($#$cols % 2 and $#$colors % 2) {
+	# trick #2: keep adding colors
+	#unless ($#$cols % 2 and $#$colors % 2) {
 		my $temp = [@$colors];
 		push(@$colors,_rotate($temp)) until $#$colors == $#$cols;
-	}
+	#}
 
 	my $ref = ($myattrib)
 		 ? { $myattrib => [@$colors] }
 		 : { style => {background => [@$colors]} }
 	;
 
-	foreach (@$cols) {
-		$self->modify(td => $ref, 'body');
-	}
+	$self->modify(td => $ref, $_) for @$cols;
 
 	return $self;
 }
@@ -267,7 +275,7 @@ sub set_pk {
 	my $self = shift;
 	my $pk   = shift || 'id';
 	$pk = $pk =~ /^\d+$/ ? $self->_lookup_name($pk) || $pk : $pk;
-	carp "too late to set primary key" if exists $self->{'rows'};
+	carp "can't call set_pk(): too late to set primary key" if exists $self->{'rows'};
 	$self->{'pk'} = lc $pk;
 
 	return $self;
@@ -304,8 +312,6 @@ sub reset {
 }
 
 ###################### DEPRECATED ##################################
-
-# use AUTOLOAD instead?
 
 sub get_table { 
 	carp "get_table() is deprecated. Use output() instead";
@@ -396,7 +402,9 @@ sub _build_head {
 	return "$output\n" if $self->{'no_head'};
 
 	# prepare <tr> tag info
-	my $tr_attribs = $self->{'head'}->{'tr'} || $self->{'global'}->{'tr'};
+	my $tr_attribs = _merge_attribs(
+		$self->{'head'}->{'tr'}, $self->{'global'}->{'tr'}
+	);
 	my $tr_cdata   = $self->_build_head_row();
 
 	# prepare the <thead> tag info
@@ -428,7 +436,10 @@ sub _build_head_row {
 	my @copy   = @{$self->{'fields_arry'}};
 
 	foreach my $field (@copy) {
-		my $attribs   = $self->{$field}->{'th'} || $self->{'head'}->{'th'} || $self->{'global'}->{'th'};
+		my $attribs = _merge_attribs(
+			$self->{$field}->{'th'}   || $self->{'head'}->{'th'},
+			$self->{'global'}->{'th'} || $self->{'head'}->{'th'},
+		);
 
 		if (my $sub = $self->{'map_head'}->{$field}) {
 			$field = $sub->($field);
@@ -470,7 +481,9 @@ sub _build_body_group {
 
 	my ($self,$chunk) = @_;
 	my ($output,$cdata);
-	my $attribs = $self->{'body'}->{'tr'} || $self->{'global'}->{'tr'};
+	my $attribs = _merge_attribs(
+		$self->{'body'}->{'tr'}, $self->{'global'}->{'tr'}
+	);
 	my $pk_col = '';
 
 	# build the rows
@@ -501,7 +514,10 @@ sub _build_body_row {
 
 	for (0..$#$row) {
 		my $name    = $self->_lookup_name($_);
-		my $attribs = $self->{$name}->{'td'} || $self->{'body'}->{'td'} || $self->{'global'}->{'td'};
+		my $attribs = _merge_attribs(
+			$self->{$name}->{'td'}    || $self->{'body'}->{'td'}, 
+			$self->{'global'}->{'td'} || $self->{'body'}->{'td'},
+		);
 		my $cdata   = $row->[$_] || $self->{'null_value'};
 
 		$self->{'current_col'} = $name;
@@ -524,8 +540,11 @@ sub _build_body_subtotal {
 
 	for (0..$#$row) {
 		my $name    = $self->_lookup_name($_);
-		my $attribs = $self->{$name}->{'th'} || $self->{'body'}->{'th'} || $self->{'global'}->{'th'};
 		my $sum     = ($row->[$_]);
+		my $attribs = _merge_attribs(
+			$self->{$name}->{'th'}    || $self->{'body'}->{'th'},
+			$self->{'global'}->{'th'} || $self->{'body'}->{'th'},
+		);
 
 		# use sprintf if mask was supplied
 		if ($self->{'subtotals_mask'} and defined $sum) {
@@ -543,7 +562,10 @@ sub _build_body_subtotal {
 sub _build_foot {
 	my ($self) = @_;
 
-	my $tr_attribs = $self->{'global'}->{'tr'} || $self->{'foot'}->{'tr'};
+	my $tr_attribs = _merge_attribs(
+		# notice that foot is 1st and global 2nd - different than rest
+		$self->{'foot'}->{'tr'}, $self->{'global'}->{'tr'}
+	);
 	my $tr_cdata   = $self->_build_foot_row();
 
 	my $attribs = $self->{'foot'}->{'tfoot'} || $self->{'global'}->{'tfoot'};
@@ -560,8 +582,10 @@ sub _build_foot_row {
 
 	for (0..$#$row) {
 		my $name    = $self->_lookup_name($_);
-		print STDERR "name = '$name'\n";
-		my $attribs = $self->{$name}->{'th'} || $self->{'foot'}->{'th'} || $self->{'global'}->{'th'};
+		my $attribs = _merge_attribs(
+			$self->{$name}->{'th'}    || $self->{'foot'}->{'th'},
+			$self->{'global'}->{'th'} || $self->{'foot'}->{'th'},
+		);
 		my $sum     = ($row->[$_]);
 
 		# use sprintf if mask was supplied
@@ -594,7 +618,7 @@ sub _tag_it {
 			} keys %$v) . ';';
 		}
 		$v = _rotate($v) if (ref $v eq 'ARRAY');
-		$text .= qq| \L$k\E="$v"|;
+		$text .= qq| \L$k\E="$v"| unless $v =~ /^$/;
 	}
 	$text .= (defined $cdata) ? ">$cdata</$name>" : '/>';
 }
@@ -644,6 +668,15 @@ sub _refinate {
 	return [map {$_ =~ /^\d+$/ ? $self->_lookup_name($_) || $_ : $_} @$ref];
 }
 
+sub _merge_attribs {
+	my ($hash1,$hash2) = @_;
+
+	return $hash1 unless $hash2;
+	return $hash2 unless $hash1;
+
+	return {%$hash2,%$hash1};
+}
+
 sub _lookup_name {
 	my ($self,$index) = @_;
 	return $self->{'fields_arry'}->[$index];
@@ -688,9 +721,9 @@ DBIx::XHTML_Table - SQL query result set to XHTML table.
   use DBIx::XHTML_Table;
 
   # database credentials - fill in the blanks
-  my ($dsrc,$usr,$pass) = ();
+  my ($data_source,$usr,$pass) = ();
 
-  my $table = DBIx::XHTML_Table->new($dsrc,$usr,$pass);
+  my $table = DBIx::XHTML_Table->new($data_source,$usr,$pass);
 
   $table->exec_query("
 	select foo from bar
@@ -702,7 +735,7 @@ DBIx::XHTML_Table - SQL query result set to XHTML table.
 
   # stackable method calls:
   print DBIx::XHTML_Table
-    ->new($dsrc,$usr,$pass)
+    ->new($data_source,$usr,$pass)
     ->exec_query('select foo,baz from bar')
     ->output();
 
@@ -738,9 +771,9 @@ there, as well as the Tutorial, Download and Support info:
  
 Note - all optional arguments are denoted inside brackets.
 
-The constuctor will simply pass the credentials to the DBI::connect
+The constructor will simply pass the credentials to the DBI::connect
 method - read the DBI documentation as well as the docs for your
-corresponding DBI driver module (DBD::Oracle, DBD::Sysbase,
+corresponding DBI driver module (DBD::Oracle, DBD::Sybase,
 DBD::mysql, etc).
 
   # MySQL example
@@ -749,9 +782,6 @@ DBD::mysql, etc).
     'user',                      # user name
     'password',                  # user password
   ) or die "couldn't connect to database";
-
-DBIx::XHTML_Table turns the 'RaiseError' attribute on when
-it calls DBI::connect. This
 
 The last argument, $attribs, is an optional hash reference
 and should not be confused with the DBI::connect method's
@@ -771,7 +801,7 @@ similar 'attributes' hash reference.'
   };
 
   my $table = DBIx::XHTML_Table->new(
-  	$dsource,$user,$pass,$attribs
+  	$data_source,$user,$pass,$attribs
   ) or die "couldn't connect to database";
 
 But it is still experimental and unpleasantly limiting.
@@ -790,7 +820,11 @@ and destroyed 'behind the scenes'. If you need to keep the database
 connection open after the XHTML_Table object is destroyed, then
 create one yourself and pass it to the constructor:
 
-  my $dbh   = DBI->connect($dsource,$usr,$passwd,{RaiseError=>1});
+  my $dbh   = DBI->connect(
+    $data_source,$usr,$passwd,
+    {RaiseError => 1},
+  );
+
   my $table = DBIx::XHTML_Table->new($dbh);
     # do stuff
   $dbh->disconnect;
@@ -858,7 +892,7 @@ bind variable or an array reference for multiple bind vars:
 
 Consult the DBI documentation for more details on bind vars.
 
-After the query successfully exectutes, the results will be
+After the query successfully executes, the results will be
 stored interally as a 2-D array. The XHTML table tags will
 not be generated until the output() method is invoked.
 
@@ -868,7 +902,7 @@ not be generated until the output() method is invoked.
 
 Renders and returns the XHTML table. The only argument is
 an optional hash reference that can contain any combination
-of the following keys are set to a true value. Most of the
+of the following keys, set to a true value. Most of the
 time you will not want to use this argument, but there are
 three times when you will:
 
@@ -895,10 +929,10 @@ option, if you wish to use some other case, use map_head()
   print $table->output({ no_indent => 1 });
 
 This will result in the output having no text aligning whitespace,
-that is no newline(\n) and tab(\t) charatcters. Usefull for squashing
+that is no newline(\n) and tab(\t) characters. Useful for squashing
 the total number of bytes resulting from large return sets.
 
-You can combine these attribues, but there is no reason to use
+You can combine these attributes, but there is no reason to use
 no_ucfirst in conjunction with no_head.
 
 Note: versions prior to 0.98 used a two argument form:
@@ -970,7 +1004,7 @@ As the table is rendered row by row, column by column, the
 elements of the array reference will be 'rotated'
 across the <td> tags, causing different effects depending
 upon the number of elements supplied and the number of
-columns and rows in the table. The following is the prefered
+columns and rows in the table. The following is the preferred
 XHTML way with CSS styles:
 
   $table->modify(th => {
@@ -981,8 +1015,7 @@ XHTML way with CSS styles:
 
 See the set_row_color() and set_col_color() methods for more info.
 
-The last argument to modify() is optional and can either
-be a scalar
+The last argument to modify() is optional and can either be a scalar
 representing a single column or area, or an array reference
 containing multilple columns or areas. The columns will be
 the corresponding names of the columns from the SQL query,
@@ -1005,8 +1038,32 @@ The columns and areas you specify are case insensitive.
      style => 'text-align: right'
   },[1,2]);
 
-You cannot currently mix areas and columns in the same
-method call.
+You cannot currently mix areas and columns in the same method call.
+That is, you cannot set a specific column in the 'head' area,
+but not the 'body' area. This _might_ change in the future, but
+such specific needs are a symptom of needing a more powerful tool.
+
+As of Version 1.10, multiple calls to modfiy() are inheritable.
+For example, if you set an attribute for all <td> tags and set
+another attribute for a specific column, that specific column
+will inherit both attributes:
+
+  $table->modify(td => {foo => 'bar'});
+  $table->modify(td => {baz => 'qux'},'Salary');
+
+In the preceding code, all <td> tags will have the attribute
+'foo = "bar"', and the <td> tags for the 'Salary' column will
+have the attributes 'foo = "bar"' and 'baz = "qux"'. Should
+you not this behavior, you can 'erase' the unwanted attribute
+by setting the value of an attribute to the empty string:
+
+  $table->modify(td => {foo => 'bar'});
+  $table->modify(td => {foo =>'', baz => 'qux'},'Salary');
+
+Note the use of the empty string and not undef or 0. Setting
+the value to undef will work, but will issue a warning if you
+have warnings turned on. Setting the value to 0 will set the
+value of the attribute to 0, not remove it.
 
 A final caveat is setting the <caption> tag. This one breaks
 the signature convention:
@@ -1367,15 +1424,17 @@ tag is NOT found. Be sure and print one out.
 
 =head1 CREDITS
 
-Briac 'OeufMayo' PilprE<eacute> for the name
+Briac [OeufMayo] PilprE<eacute> for the name.
 
-Mark 'extremely' Mills for patches and suggestions
+Mark [extremely] Mills for patches and suggestions.
 
 Jim Cromie for presenting the whole spreadsheet idea.
 
-Matt Sergeant for DBIx::XML_RDB
+Stephen Nelson for documentation/code corrections.
 
-Perl Monks for the education
+Matt Sergeant for DBIx::XML_RDB.
+
+Perl Monks for the education.
 
 =head1 SEE ALSO 
 

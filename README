@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	1.10 - inheritable attributes, bux fix in set_col_colors()
 	1.01 - bug fix in _refinate()
 	1.00 - columns by number, fixed map_cell bug, experimenting with tests
 	0.99 - deprected modify_tag() for modify(), fixed header ucfirst bug
