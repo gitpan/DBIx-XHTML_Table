@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.32';
+$VERSION = '1.34';
 
 use DBI;
 use Carp;
@@ -32,14 +32,12 @@ sub new {
 
 	# note: disconnected handles aren't caught :(
 
-	my $thingy = ref $_[0];
-	
-	if ($thingy eq 'DBI::db' || $thingy =~ /DBI/) {
+	if (UNIVERSAL::isa($_[0],'DBI::db')) {
 		# use supplied db handle
 		$self->{'dbh'}        = $_[0];
 		$self->{'keep_alive'} = 1;
 	} 
-	elsif ($thingy eq 'ARRAY') {
+	elsif (ref($_[0]) eq 'ARRAY') {
 		# go ahead and accept a pre-built 2d array ref
 		$self->_do_black_magic(@_);
 	}
@@ -47,9 +45,6 @@ sub new {
 		# create my own db handle
 		eval { $self->{'dbh'} = DBI->connect(@_) };
 		carp $@ and return undef if $@;
-
-		# to RaiseError or not ... should let user decided
-		#eval { $self->{'dbh'} = DBI->connect(@_,{RaiseError=>1}) };
 	}
 
 	return $self;
@@ -61,8 +56,12 @@ sub exec_query {
 	my ($self,$sql,$vars) = @_;
 
 	carp "can't call exec_query(): do database handle" unless $self->{'dbh'};
+
 	eval {
-		$self->{'sth'} = $self->{'dbh'}->prepare($sql);
+		$self->{'sth'} = (UNIVERSAL::isa($sql,'DBI::st'))
+			? $sql
+			: $self->{'dbh'}->prepare($sql)
+		;
 		$self->{'sth'}->execute(@$vars);
 	};
 	carp $@ and return undef if $@;
@@ -841,17 +840,11 @@ create one yourself and pass it to the constructor:
     # do stuff
   $dbh->disconnect;
 
-Prior to version 1.24, DBIX::XHTML_Table would only accept a
-reference blessed to the 'DBI::db' namespace. Versions 1.24 and
-up will extent that restriction to any blessed reference that
-matches /DBI/ - in particular, DBIx::Password:
+You can also use any class that isa() DBI::db object, such
+as Apache::DBI or DBIx::Password objects:
 
   my $dbh   = DBIx::Password->connect($user);
   my $table = DBIx::XHTML_Table->new($dbh);
-
-This I<should> work for any DBI'ish reference that is a
-subclass of DBI::db (such as DBIx::Password), But only DBI::db,
-DBIx::Password, and Apache::DBI have been tested.
 
 =item B<style_3>
 
@@ -913,6 +906,16 @@ bind variable or an array reference for multiple bind vars:
 	  where bar = ?
 	  and   baz = ?
   ',[$foo,$bar]);
+
+exec_query() also accepts a prepared DBI::st handle:
+
+  my $sth = $dbh->prepare('
+      select bar,baz from foo
+	  where bar = ?
+	  and   baz = ?
+  ');
+
+  $table->exec_query($sth,[$foo,$bar]);
 
 Consult the DBI documentation for more details on bind vars.
 
@@ -1499,8 +1502,7 @@ Matt Sergeant for DBIx::XML_RDB.
 
 Aaron [trs80] Johnson for convincing me into writing add and drop cols.
 
-Richard Piacentini and Tim Alexander for recommending 
-   DBIx::Password and Apache::DBI compat.
+Richard Piacentini and Tim Alexander for recommending DBIx::Password and Apache::DBI compatability and Slaven Rezic for recommending using UNIVERSAL::isa().
 
 Perl Monks for the education.
 
