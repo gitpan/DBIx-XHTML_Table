@@ -1,6 +1,11 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
-0.84 Sat May 12 02:51:58 CDT 2001
+0.85  Sat May 12 14:38:02 CDT 2001
+	- found major bug in _build_body() - a <tbody>
+	  tag pair was being created for every row if a
+	  group was not set (.. is not the same as ,)
+
+0.84  Sat May 12 02:51:58 CDT 2001
 	- MAJOR: changed add_colgroup() to add_col_tag()
 	  the former name was ambigious (col or colgroup?)
 	- implemented new calc_totals(), calc_subtotals(),
@@ -10,16 +15,16 @@ Revision history for Perl extension DBIx::XHTML_Table.
 	  the complexity of calculating totals
 	- added a tag reference table to documentation
 
-0.83 Thu May 10 17:09:16 CDT 2001
+0.83  Thu May 10 17:09:16 CDT 2001
 	- added Mark's patch to produce </tbody> tag
 	- patch also lower cased all tags
 	- documentation typo fixes
 
-0.82 Tue May  8 09:14:54 CDT 2001
+0.82  Tue May  8 09:14:54 CDT 2001
 	- corrected incorrect version number
 	- corrected formatting in credits
 
-0.81 Mon May  7 22:34:16 CDT 2001
+0.81  Mon May  7 22:34:16 CDT 2001
 	- made the package name fully qualified
 	- updated and corrected documentation
 	- updated and corrected tutorial

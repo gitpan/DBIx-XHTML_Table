@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.84';
+$VERSION = '0.85';
 
 use DBI;
 use Data::Dumper;
@@ -284,7 +284,7 @@ sub _build_body {
 	# then use the entire 2-d array
 	my @indicies = exists $self->{body_breaks}
 		? @{$self->{body_breaks}}
-		: (0..$self->get_row_count -1);
+		: ($self->get_row_count -1);
 
 	# the skinny here is to grab a slice
 	# of the rows, one for each group
