@@ -1,5 +1,17 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+0.95
+	- added map_head()
+	- changed default behavior of not specifying cols
+	  in methods such as map_col and calc_totals
+	  new behavior: no cols = all cols
+	- constructor now accepts a hash ref as last arg
+	  which allows minor table config to be specified
+	  without multiple modify_tag() calls
+	- modified behavior of map_col() and map_head()
+	  they no longer permantly change the data, all
+	  processing is done when creating table output
+
 0.90
 	- MAJOR: Changed HEADER to HEAD and FOOTER to FOOT
 	- Apparrently all past versions have a syntax error

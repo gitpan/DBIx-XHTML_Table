@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.90';
+$VERSION = '0.95';
 
 use DBI;
 use Data::Dumper;
@@ -24,10 +24,13 @@ use vars qw(%ESCAPES $T $N);
 sub new {
 	my $proto = shift;
 	my $class = ref($proto) || $proto;
-	my $self = {
+	my $self  = {
 		null_value => '&nbsp;',
 	};
 	bless $self, $class;
+
+	# last arg might be GTCH (global table config hash)
+	$self->{'global'} = pop if ref $_[$#_] eq 'HASH';
 
 	# disconnected handles aren't caught :(
 	if (ref $_[0] eq 'DBI::db') {
@@ -89,27 +92,27 @@ sub modify_tag {
 		}
 	}
 	# or handle a special case (e.g. <caption>)
-	# feature: <table> could be safely modified in this manner
 	else {
 		# cols is really attribs now, attribs is just a scalar
-		$self->{global}->{$tag."_value"} = $attribs;
-		$self->{global}->{$tag}          = $cols;
+		$self->{global}->{$tag}            = $attribs;
+		$self->{global}->{$tag."_attribs"} = $cols;
 	}
 }
 
 sub map_col {
 	my ($self,$sub,$cols) = @_;
 
-	$cols = [$cols] unless ref $cols eq 'ARRAY';
+	$cols = $self->_refinate($cols);
+	#$self->_map_it($cols,$_,$sub) foreach @{$self->{rows}};
+	$self->{'map_col'} = { cols => $cols, 'sub' => $sub };
+}
 
-	# apply user's subroutine to specified columns
-	foreach my $row(@{$self->{rows}}) {
-		foreach my $col (@$cols) {
-			$col = lc $col;
-			my $index = $self->{fields_hash}->{$col};
-			$row->[$index] = $sub->($row->[$index]);
-		}
-	}
+sub map_head {
+	my ($self,$sub,$cols) = @_;
+
+	$cols = $self->_refinate($cols);
+	#$self->_map_it($cols,$self->{fields_arry},$sub);
+	$self->{'map_head'} = { cols => $cols, 'sub' => $sub };
 }
 
 sub add_col_tag {
@@ -145,7 +148,7 @@ sub calc_totals {
 	return undef unless $self->{rows};
 
 	$self->{totals_mask} = $mask;
-	$cols = [$cols] unless ref $cols eq 'ARRAY';
+	$cols = $self->_refinate($cols);
 	my @indexes = map { $self->{fields_hash}->{lc $_} } @$cols;
 
 	$self->{totals} = $self->_total_chunk($self->{rows},\@indexes);
@@ -158,7 +161,7 @@ sub calc_subtotals {
 	return undef unless $self->{rows};
 
 	$self->{subtotals_mask} = $mask;
-	$cols    = [$cols] unless ref $cols eq 'ARRAY';
+	$cols = $self->_refinate($cols);
 	my @indexes = map { $self->{fields_hash}->{lc $_} } @$cols;
 
 	my $beg = 0;
@@ -184,9 +187,8 @@ sub get_row_count {
 sub set_row_colors {
 	my ($self,$colors,$cols) = @_;
 
-	$cols   = $self->{fields_arry} unless $cols;
-	$cols   = [$cols]   unless ref $cols eq 'ARRAY';
 	$colors = [$colors] unless ref $colors eq 'ARRAY';
+	$cols   = $self->_refinate($cols);
 
 	# assign each column or global a list of colors
 	# have to deep copy here, hence the temp
@@ -220,14 +222,14 @@ sub _build_head {
 	my ($self) = @_;
 	my ($output,$attribs,$cdata,$caption);
 
-	# build the caption if applicable
-	if ($caption = $self->{global}->{caption_value}) {
-		$attribs = $self->{global}->{caption};
+	# build the <caption> tag if applicable
+	if ($caption = $self->{global}->{caption}) {
+		$attribs = $self->{global}->{caption_attribs};
 		$cdata   = $self->_xml_encode($caption);
 		$output .= $N.$T . _tag_it('caption', $attribs, $cdata);
 	}
 
-	# build the colgroups if applicable
+	# build the <colgroup> tags if applicable
 	if ($attribs = $self->{global}->{colgroup}) {
 		$cdata   = $self->_build_head_colgroups();
 		$output .= $N.$T . _tag_it('colgroup', $attribs, $cdata);
@@ -236,15 +238,15 @@ sub _build_head {
 	# go ahead and stop if they don't want the titles
 	return "$output\n" if $self->{suppress_titles};
 
-	# prepare the tr tag info
+	# prepare <tr> tag info
 	my $tr_attribs = $self->{head}->{tr} || $self->{global}->{tr};
 	my $tr_cdata   = $self->_build_head_row();
 
-	# prepare the thead tag info
+	# prepare the <thead> tag info
 	$attribs = $self->{head}->{thead} || $self->{global}->{thead};
 	$cdata   = $N.$T . _tag_it('tr', $tr_attribs, $tr_cdata) . $N.$T;
 
-	# add the thead tag to the output
+	# add the <thead> tag to the output
 	$output .= $N.$T . _tag_it('thead', $attribs, $cdata) . $N;
 }
 
@@ -267,9 +269,11 @@ sub _build_head_row {
 	my ($self) = @_;
 	my $output = $N;
 
-	foreach (@{$self->{fields_arry}}) {
-		my $attribs = $self->{$_}->{th} || $self->{head}->{th} || $self->{global}->{th};
-		$output .= $T.$T . _tag_it('th', $attribs, ucfirst $_) . $N;
+	my @copy = @{$self->{fields_arry}};
+	foreach my $field (@copy) {
+		my $attribs = $self->{$field}->{th} || $self->{head}->{th} || $self->{global}->{th};
+		$field = _map_it($self->{'map_head'},$field,$field);
+		$output .= $T.$T . _tag_it('th', $attribs, $field) . $N;
 	}
 
 	return $output . $T;
@@ -308,8 +312,8 @@ sub _build_body_group {
 
 	# build the rows
 	for my $i (0..$#$chunk) {
-		my $row  = $chunk->[$i];
-		$cdata   = $self->_build_body_row($row, ($i and $self->{nodup} or 0));
+		my @row  = @{$chunk->[$i]};
+		$cdata   = $self->_build_body_row(\@row, ($i and $self->{nodup} or 0));
 		$output .= $T . _tag_it('tr',$attribs,$cdata) . $N;
 	}
 
@@ -325,20 +329,22 @@ sub _build_body_group {
 sub _build_body_row {
 	my ($self,$row,$nodup) = @_;
 
-	my $group = $self->{group};
-	my $index = $self->{fields_hash}->{$group} if $group;
+	my $group  = $self->{group};
+	my $index  = $self->{fields_hash}->{$group} if $group;
 	my $output = $N;
+	my $colors;
 
 	for (0..$#$row) {
 		my $name    = $self->{fields_arry}->[$_];
 		my $attribs = $self->{$name}->{td} || $self->{global}->{td};
 		my $cdata   = $row->[$_] || $self->{null_value};
+		$cdata      = _map_it($self->{'map_col'},$cdata,$name);
 
 		# handle 'no duplicates'
 		$cdata = $self->{nodup} if $nodup and $index == $_;
 
 		# rotate colors if found
-		if (my $colors = $self->{$name}->{colors}) {
+		if ($colors = $self->{$name}->{colors}) {
 			$attribs->{bgcolor} = _rotate($colors);
 		}
 
@@ -420,6 +426,21 @@ sub _tag_it {
 	$text .= (defined $cdata) ? ">$cdata</$name>" : '/>';
 }
 
+# used by map_col() and map_head()
+sub _map_it {
+	my ($hash,$datum,$col) = @_;
+	return $datum unless $hash;
+
+	my $cols = $hash->{'cols'};
+	my $sub  = $hash->{'sub'};
+
+	foreach (@$cols) {
+		$datum = $sub->($datum) if $_ eq $col;
+	}
+	return $datum;
+}
+
+# used by calc_totals() and calc_subtotals()
 sub _total_chunk {
 	my ($self,$chunk,$indexes) = @_;
 	my %totals;
@@ -447,6 +468,14 @@ sub _rotate {
 	my $next = shift @$ref;
 	push @$ref, $next;
 	return $next;
+}
+
+# always returns an array ref
+sub _refinate {
+	my ($self,$ref) = @_;
+	@$ref = @{$self->{fields_arry}} unless defined $ref;
+	$ref = [$ref] unless ref $ref eq 'ARRAY';
+	return $ref; # make sure nothing changes $ref !!
 }
 
 # assigns a non-DBI supplied data table (2D array ref)
@@ -478,70 +507,21 @@ DBIx::XHTML_Table - Create XHTML tables from SQL queries
   use DBIx::XHTML_Table;
 
   # database credentials - fill in the blanks
-  my ($dsource,$user,$pass) = ();
+  my ($dsrc,$usr,$pass) = ();
 
-  # create the object
-  my $table = DBIx::XHTML_Table->new($dsource, $user, $pass) 
-  			|| die "could not connect to database\n";
+  my $table = DBIx::XHTML_Table->new($dsrc,$usr,$pass) or die;
 
-  # grab some data
   $table->exec_query("
-	SELECT ARTIST,ALBUM,TITLE,YEAR,GENRE 
-	FROM MP3.SONGS
-	WHERE YEAR=? AND GENRE=? 
-	ORDER BY ARTIST,YEAR,TITLE
-  ",[$year,$genre]);    # bind vars for demonstration only
+	select foo from bar
+	where baz='qux'
+	order by foo
+  ");
 
-  # start tweaking the table
-  $table->modify_tag('table',{
-	  border      => 1,
-	  cellspacing => 0,
-  });
-
-  # modify all <th> tags
-  $table->modify_tag('th',{
-	  bgcolor => 'black',
-	  style   => 'Color: white;',
-  });
-
-  # modify only <td> tags for TITLE column
-  $table->modify_tag('td',{
-	  align   => 'right',     # although align is deprecated
-	  bgcolor => '#ABACAB',
-  }, 'title');
-
-  # values that are array refs will be rotated horizontally
-  $table->modify_tag('td',{
-	  width   => 200,
-	  align   => [qw(left right)],
-	  bgcolor => [qw(blue red)],
-  }, [qw(album year)]);
-
-  # this rotates colors vertically down the columns
-  $table->set_row_colors(
-	["#D0D0D0", "#B0B0B0"],
-	[qw(artist genre)],
-  );
-
-  # set the most general column as the group
-  $table->set_group('artist');  # can also suppress duplicates
-
-  # sum up the years column
-  $table->calc_totals('year');
-
-  # and if you have set a group . . .
-  $table->calc_subtotals('year');
-
-  # print out the complete table
   print $table->get_table;
 
-=head1 DESCRIPTION
+  # and much more, read on . . .
 
-B<XHTML_Table> will execute SQL queries and return the results 
-(as a scalar 'string') wrapped in XHTML tags. Methods are provided 
-for determining which tags to use and what their attributes will be.
-Tags such as <table>, <tr>, <th>, and <td> will be automatically
-generated, you just have to specify what attributes they will use.
+=head1 DESCRIPTION
 
 This module was created to fill a need for a quick and easy way to
 create 'on the fly' XHTML tables from SQL queries for the purpose
@@ -554,15 +534,26 @@ and XHTML_Table has the advantage of displaying at least something
 on browsers that are not XML or XHTML compliant. At the worst, only
 the XHTML tags will be ignored, and not the content of the report.
 
+I am firm believer in separating presentation from content, but breaking
+the rules can be pretty fun sometimes! The beauty of this module is
+that you are allowed to be as simple or as complex as you wish. Enough
+with the sales pitch, onward!
+
+B<XHTML_Table> will execute SQL queries and return the results 
+(as a scalar 'string') wrapped in XHTML tags. Methods are provided 
+for determining which tags to use and what their attributes will be.
+Tags such as <table>, <tr>, <th>, and <td> will be automatically
+generated, you just have to specify what attributes they will use.
+
 The user is highly recommended to become familiar with the rules and
 structure of the new XHTML tags used for tables.  XHTML is pretty
-much the HTML4.0 specification, but with the rules of XML.  A good, 
+much the HTML4.0 specification, but with the rules of XML. A good, 
 terse reference on HTML4.0 can be found at
 http://www.w3.org/TR/REC-html40/struct/tables.html
 
 Included in this documention is a simple table that lists all supported
 tags, how they are created, and what method is used to set the attributes.
-See B<TAG REFERENCE> (yes, i know that's spelled wrong).
+See B<TAG REFERENCE>.
 
 Additionally, a simple B<TUTORIAL> is included in this documentation
 toward the end, just before the third door, down the hall, past
@@ -574,21 +565,54 @@ the chickens and through a small gutter (just keep scrolling down).
 
 =item B<style 1>
 
-  $obj_ref = new DBIx::XHTML_Table($dsource,$usr,$passwd)
+  $obj_ref = new DBIx::XHTML_Table(@credentials[,$attribs])
+  
+  # note - all optional args are denoted inside brackets
 
 Construct a new XHTML_Table object by supplying the database
-credentials: datasource, user, password: 
+credentials:
 
-  my $table = DBIx::XHTML_Table->new($dsource,$usr,$passwd) || die;
+  # mysql example
+  my $table = DBIx::XHTML_Table->new(
+    'DBI:mysql:database:host',   # datasource
+    'user',                      # user name
+    'password',                  # user password
+  ) or die "couldn't connect!";
 
-The constuctor will simply pass the arguments to the connect()
-method from F<DBI.pm> - see L<DBI> as well as the one for your
-corresponding DBI driver module - DBD::Oracle, DBD::Sysbase, 
-DBD::mysql, etc. The explanation of $dsource lies therein.
+The constuctor will simply pass the credentials to the DBI::connect()
+method - see L<DBI> as well as the one for your corresponding DBI
+driver module (DBD::Oracle, DBD::Sysbase, DBD::mysql, etc) for the
+proper format for 'datasource'.
+
+The $attribs argument is optional - it should be a hash reference
+whose keys are the names of any XHTML tag (colgroup and col are
+very experimental right now), and the values are hash references
+containing the desired attrbutes for those tags:
+
+  # valid example for last argument
+  my $table_attribs = {
+    table => {
+      width       => '75%',
+      cellspacing => '0',
+      rules       => 'groups',
+    },
+    caption => 'Example',
+    td => {
+      align => 'right',
+    },
+  };
+
+  my $table = DBIx::XHTML_Table->new(@credentials,$table_attribs);
+
+The purpose of $attribs is to allow the bypassing of having to
+call modify_tag() (see below) multiple times. Right now, $attribs
+can only modify 'global' tags - i.e., you can't specify attributes
+by Areas (head, body, or foot) or Columns (specific to the query
+result) - see modify_tag() below for more on Areas and Columns.
 
 =item B<style 2>
 
-  $obj_ref = new DBIx::XHTML_Table($DBH)
+  $obj_ref = new DBIx::XHTML_Table($DBH[,$attribs])
 
 The first style will result in the database handle being created
 and destroyed 'behind the scenes'. If you need to keep the database
@@ -601,7 +625,7 @@ connection open, create one yourself and pass it to the constructor:
 
 =item B<style 3>
 
-  $obj_ref = new DBIx::XHTML_Table($array_ref)
+  $obj_ref = new DBIx::XHTML_Table($array_ref[,$attribs)
 
 The final style allows you to bypass a database altogether if need
 be. Simply pass a similar structure as the one passed back from
@@ -617,8 +641,9 @@ B<DBI>'s C<selectall_arrayref()>, that is, a list of lists:
   my $table = DBIx::XHTML_Table->new($ref);
 
 The only catch is that the first row will be treated as the table
-heading - be sure and supply one, even you don't need it.  You can
-always bypass the printing of the heading via C<get_table()>.
+heading - be sure and supply one, even you don't need it. As a side
+effect, that first row will be removed from $ref upon instantiation.
+You can always bypass the printing of the heading via C<get_table()>.
 
 =back
 
@@ -628,20 +653,11 @@ always bypass the printing of the heading via C<get_table()>.
 
 =item B<exec_query>
 
-  $table->exec_query($sql,[$bind_vars])
-=back
+  $table->exec_query($sql[,$bind_vars])
 
-=head1 OBJECT METHODS
-
-=over 4
-
-=item B<exec_query>
-
-  $table->exec_query($sql,[$bind_vars])
-
-Pass the query off to the database with hopes of data being 
+Pass the query off to the database with hopes that data will be 
 returned. The first argument is scalar that contains the SQL
-code, the second argument can either be a scalar for one
+code, the optional second argument can either be a scalar for one
 bind variable or an array reference for multiple bind vars:
 
   $table->exec_query("
@@ -659,7 +675,7 @@ can be modified via B<map_column()>.
 
 =item B<get_table>
 
-  $scalar = $table->get_table($sans_title,$sans_whitespace)
+  $scalar = $table->get_table([$sans_title,$sans_whitespace])
 
 Renders and returns the XHTML table. The first argument is a
 non-zero, defined value that suppresses the column titles. The
@@ -678,7 +694,7 @@ no newline(\n) and tab(\t) charatcters.
 
 =item B<modify_tag>
 
-  $table->modify_tag($tag,$args,[$cols])
+  $table->modify_tag($tag,$attribs[,$cols])
 
 This method will store a 'memo' of what attributes you have assigned
 to various tags within the table. When the table is rendered, these
@@ -687,7 +703,7 @@ name of the tag you wish to modify the attributes of. You can supply
 any tag name you want without fear of halting the program, but the
 only tag names that are handled are <table> <caption> <thead> <tfoot>
 <tbody> <colgroup <col> <tr> <th> and <td>. The tag name will be
-converted to uppercase, so you can practice safe case insensitivity.
+converted to lowercase, so you can practice safe case insensitivity.
 
 The next argument is a reference to a hash that contains the
 attributes you wish to apply to the tag. For example, this
@@ -713,7 +729,7 @@ valid XHTML attribute can be used. Yes. Even JavaScript.
 
 You can even use an array reference as the key values:
 
-  $table->modify_tag('td',{
+  $table->modify_tag(td => {
       bgcolor => [qw(red purple blue green yellow orange)],
   }),
 
@@ -737,11 +753,11 @@ The areas are one of three values: HEAD, BODY, or FOOT.
 The columns and areas you specify are case insensitive.
 
   # just modify the titles
-  $table->modify_tag('th',{
+  $table->modify_tag(th => {
       bgcolor => '#bacaba',
   }, 'head');
 
-You cannot currently mix areas and columns. 
+You cannot currently mix areas and columns.
 
 If the last argument is not supplied, then the attributes will
 be applied to the entire table via a global memo. However,
@@ -749,12 +765,12 @@ entries in the global memo are only used if no memos for that
 column or area have been set:
 
   # all <td> tags will be set
-  $table->modify_tag('td',{
+  $table->modify_tag(td => {
       class => 'foo',
   });
 
-  # except those for column BAR
-  $table->modify_tag('td',{
+  # only <td> tags in column BAR will be set
+  $table->modify_tag(td => {
       class => 'bar',
   }, 'bar');
 
@@ -764,20 +780,20 @@ commutative - it doesn't matter.
 A final caveat is setting the <caption> tag. This one breaks
 the signature convention:
 
-  $table->modify_tag('caption', $value, $atr);
+  $table->modify_tag(tag => $value, $attrib);
 
 Since there is only one <caption> allowed in an XHTML table,
 there is no reason to bind it to a column or an area:
 
   # with attributes
-  $table->modify_tag('caption','A Table Of Contents',{
+  $table->modify_tag(caption => 'A Table Of Contents',{
       class => 'body',
   });
 
   # without attributes
-  $table->modify_tag('caption','A Table Of Contents');
+  $table->modify_tag(caption => 'A Table Of Contents');
 
-The only tag that cannot be modified by this method is the <COL>
+The only tag that cannot be modified by modify_tag() is the <col>
 tag. Use add_col_tag to add these tags instead.
 
 =item B<add_col_tag>
@@ -802,14 +818,15 @@ Advice: use <col> and <colgroup> tags wisely, don't do this:
 When this will suffice:
 
   # good
-  $table->modify_tag('colgroup',{
+  $table->modify_tag(colgroup => {
       span => 40,
       foo  => 'bar',
   });
 
 You should also consider using <col> tags to set the attributes
 of <td> and <th> instead of the <td> and <th> tags themselves,
-especially if it is for the entire table:
+especially if it is for the entire table. Notice the use of the
+get_col_count() method in this example:
 
   $table->add_col_tag({
       span  => $table->get_col_count(),
@@ -818,14 +835,14 @@ especially if it is for the entire table:
 
 =item B<map_col>
 
-  $table->map_col($subroutine,[$cols])
+  $table->map_col($subroutine[,$cols])
 
 Map a supplied subroutine to all the <td> tag's cdata for
 the specified columns.  The first argument is a reference to a
 subroutine. This subroutine should shift off a single scalar at
 the beginning, munge it in some fasion, and then return it.
-The second argument is the column or columns to apply this
-subroutine to. Example: 
+The second argument is the column (scalar) or columns (reference
+to a list of scalars) to apply this subroutine to. Example: 
 
   # uppercase the data in column DEPARTMENT
   $table->map_col( sub { return uc shift }, 'department');
@@ -839,7 +856,7 @@ color the cdata inside a <td> tag pair. For example:
   }, 'first_name');
 
   # when this will work (and you dig CSS)
-  $table->modify_tag({
+  $table->modify_tag(td => {
 	  style => 'Color: red;',
   }, 'first_name');
 
@@ -851,12 +868,25 @@ into an anchor:
     return qq|<a href="/foo.cgi?process=$raw">$raw</font>|;
   }, 'category');
   
-This method permantly changes the data, so use it wisely and
-sparringly. This consequence will be removed in a future version.
+If [$cols] is not specified, all columns are assumed. This
+method does not permantly change the data. 
+
+=item B<map_head>
+
+  $table->map_head($subroutine[,$cols])
+
+Just like map_col(), except it modifies only column headers, 
+i.e. the <th> data located inside the <thead> section. The
+immediate application is to ucfirst() the column headers:
+
+  $table->map_head(sub { ucfirst shift });
+
+If [$cols] is not specified, all columns are assumed. This
+method does not permantly change the data. 
 
 =item B<set_row_colors>
 
-  $table->set_row_colors([$colors],[$cols])
+  $table->set_row_colors($colors[,$cols])
 
 Assign a list of colors to the body cells for specified columns
 or the entire table if none specified for the purpose of
@@ -866,7 +896,7 @@ That method rotates on each column (think horizontally),
 this one rotates on each row (think vertically). However:
 
   # this:
-  $table->modify_tag('td',{
+  $table->modify_tag(td => {
 	  bgcolor => [qw(green green red red)],
   }, [qw(first_name last_name)]);
 
@@ -876,20 +906,30 @@ this one rotates on each row (think vertically). However:
 	  [qw(first_name last_name)],
   );
 
-This is a strong possibiliy that this method will be deprecated to
-make way for a method that handles any attribute, not just BGCOLOR.
-If so, this method will just hand the arguments to the new method,
-so as not to break any clients.
+Again, $cols is optional, and can be either a single column
+(scalar) or multiple columns (reference to a list of scalars),
+and if not present, all columns are assumed.
+
+Another way to alternate row colors is by using the set_group()
+method (explained further below) and modify_tag() on <tbody>:
+
+  $table->set_group('<pick the most redundant column here!>');
+
+  $table->modify_tag(tbody => {
+	  bgcolor => [qw(green red)],
+  });
 
 =item B<set_null_value>
 
   $table->set_null_value($new_null_value)
 
-Change the default null_value (&nbsp;) to something else.
+Change the default null_value (&nbsp;) to something else.  
+Any column that is undefined will have this value 
+substituted instead.
 
 =item B<set_group>
 
-  $table->set_group($column)
+  $table->set_group($column[,$no_dups,$replace_with])
 
 Assign one column as the main column. Every time a new row is
 encountered for this column, a <tbody> tag is written. An optional
@@ -908,28 +948,48 @@ specifies what value to replace for duplicates, default is &nbsp;
 
 Don't assign a column that has a different value each row, choose
 one that is a super class to the rest of the data, for example,
-pick album over song, since an album consists of songs.
+pick album over song, since an album consists of songs. See the Tutorial
+below (you know, past the chickens) for more on this method.
+
+So, what's it good for? If you supply the following two attributes
+(and their associated values) to the <table> tag:
+
+  # only usefull if you set a group, by the way
+  $table->modify_tag(table => {
+	  cellspacing => '0',
+	  rules       => 'groups',
+  });
+
+then horizontal lines will only appear at the point where the 'grouped' 
+column changes.  This had to be implemented in the past with <table>'s
+inside of <table>'s. Much nicer! Add this for a nice coloring trick:
+
+  # works with or without setting a group
+  $table->modify_tag(tbody => {
+	  bgcolor => [qw(insert rotating colors here)],
+  });
 
 =item B<calc_totals>
 
-  $table->calc_totals([$cols],$mask)
+  $table->calc_totals([$cols,$mask])
 
 Computes totals for specified columns. The first argument is the column
 or columns to sum, again a scalar or array reference is the requirement.
-Non-numbers will be ignored, negatives and floating points are supported,
-but you have to supply an appropriate sprintf mask, which is the optional
-second argument, in order for the sum to be correctly formatted. See
-L<sprintf> for further details.  
+If $cols is not specified, all columns will be totaled. Non-numbers will
+be ignored, negatives and floating points are supported, but you have to
+supply an appropriate sprintf mask, which is the optional second argument,
+in order for the sum to be correctly formatted. See L<sprintf> for further
+details.  
 
 =item B<calc_subtotals>
 
-  $table->calc_subtotals([$cols],$mask)
+  $table->calc_subtotals([$cols,$mask])
 
 Computes subtotals for specified columns. It is manditory that you
 first specify a group via B<set_group()> before you call this method.
 Each subtotal is tallied from the rows that have the same value
 in the column that you specified to be the group. At this point, only
-one subtotal can be calculated and displayed. 
+one subtotal row per group can be calculated and displayed. 
 
 =item B<get_col_count>
 
@@ -1013,11 +1073,18 @@ Step 2. Execute a SQL query
 Let's get all the rows, parent first, child second, the
 take third, all ordered by parent, then child:
 
+  # to see this example progress from simple to complex,
+  # add each of the following snippets (one at a time)
+  # to your code, just before the call to get_table()
+
   $table->exec_query("
     SELECT PARENT,CHILD,TAKE
     FROM BAR
     ORDER BY PARENT,CHILD
   ");
+
+  # at this point, only the necessary tags are present
+  print $table->get_table();
 
 Step 3. Mold an XHTML table
 
@@ -1033,15 +1100,17 @@ want 'pretty bridges'. Start by modifying the <table> tag:
     summary     => 'weekly takes',
   });
 
+  # etc . . .
   print $table->get_table();
 
 Add a caption:
 
   $table->modify_tag(caption => 'This Weeks Takes');
 
-  # to see this example progress from simple to complex,
-  # add each of the following snippets (one at a time)
-  # to your code, just before the call to get_table()
+Make the column headers display the first letter on their
+name as upper-cased:
+
+  $table->map_head(sub { ucfirst shift} );
 
 Let's sum up how much the kids took this week:
 
