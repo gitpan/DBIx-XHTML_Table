@@ -1,0 +1,26 @@
+NAME
+    DBIx::XHTML_Table - Create XHTML tables from SQL queries
+
+INSTALL
+    Installation as usual:
+
+        perl Makefile.PL
+        make
+        make test
+        make install
+
+DESCRIPTION
+    See perldoc DBIx::XHTML_Table
+
+HISTORY
+    Uploaded to CPAN as version 0.8 May 6th, 2001
+
+AUTHOR
+    Jeffrey Hayes Anderson <captvanhalen@yahoo.com>
+
+COPYRIGHT
+    Copyright (c) 2001 Jeffrey Hayes Anderson. All rights
+    reserved.  DBIx::XHTML_Table is free software; it may be
+    copied, modified, and/or redistributed under the same
+    terms as Perl itself.
+
