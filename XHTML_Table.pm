@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.20';
+$VERSION = '1.22';
 
 use DBI;
 use Carp;
@@ -47,10 +47,6 @@ sub new {
 
 		# to RaiseError or not ... should let user decided
 		#eval { $self->{'dbh'} = DBI->connect(@_,{RaiseError=>1}) };
-#DBIx::XHTML_Table turns the 'RaiseError' attribute on when
-#it calls DBI::connect. This causes your script to die if
-#any errors is raised by the database.
-
 	}
 
 	return $self;
@@ -328,9 +324,10 @@ sub map_col {
 	map_cell(@_);
 }
 
-################ UNDOCUMENTED METHODS ################
+################ ABOMINATIONS TO THE DBIx NAMESPACE ################
 
-# usage:
+# don't use these - they belong in /dev/null
+
 # $config = [ { name => '', data => [], before => '' }, { ... }, ... ];
 sub add_cols {
 	my ($self,$config) = @_;
@@ -517,8 +514,15 @@ sub _build_body_row {
 			$self->{$name}->{'td'}    || $self->{'body'}->{'td'}, 
 			$self->{'global'}->{'td'} || $self->{'body'}->{'td'},
 		);
-		my $cdata = ($row->[$_] and $row->[$_] =~ /^.+$/)
-			? $row->[$_]
+
+		# suppress warnings AND keep 0 from becoming &nbsp;
+		$row->[$_] = '' unless defined($row->[$_]);
+
+		# escape ampersands ... should i escape more?
+		$row->[$_] =~ s/&/&amp;/g;
+
+		my $cdata = ($row->[$_] =~ /^.+$/) 
+			? $row->[$_] 
 			: $self->{'null_value'}
 		;
 

@@ -1,5 +1,11 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.22
+	- well, extremely's patch turned 0's into &nbsp; - fixed
+	  (you rule anyway Mark!)
+	- also, now escaping ampersands in _build_body_row
+	  (this prolly should be a user option ...)
+
 1.20
 	- added extremely's patch to keep NULL warnings at bay
 

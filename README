@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	1.22 - tweaked last patch and converting & to &amp;
 	1.20 - added extremely's patch to keep NULL complaints at bay
 	1.18 - named parent dir incorrectly in prev version
 	1.16 - incremented copyright date
