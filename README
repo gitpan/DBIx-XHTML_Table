@@ -13,6 +13,7 @@ DESCRIPTION
     See perldoc DBIx::XHTML_Table
 
 HISTORY
+	1.01 - bug fix in _refinate()
 	1.00 - columns by number, fixed map_cell bug, experimenting with tests
 	0.99 - deprected modify_tag() for modify(), fixed header ucfirst bug
 	0.98 - styles as hashes, set_row_colors() uses styles now

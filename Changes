@@ -1,5 +1,8 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
+1.01    - fixed bug within _refinate() - introduced from
+	  cols by number feature 
+
 1.00    - added support for specifying columns by number
 	- fixed map_cell bug - second call would wipe out first
 	- experimenting with tests ... :/

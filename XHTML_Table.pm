@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '1.00';
+$VERSION = '1.01';
 
 use DBI;
 use Carp;
@@ -68,6 +68,7 @@ sub exec_query {
 	carp "no data was returned from query" unless @{$self->{'rows'}};
 
 	if (exists $self->{'pk'}) {
+		# remove the primary key info from the arry and hash
 		$self->{'pk_index'} = delete $self->{'fields_hash'}->{$self->{'pk'}};
 		splice(@{$self->{'fields_arry'}},$self->{'pk_index'},1) if defined $self->{'pk_index'};
 	}
@@ -638,7 +639,7 @@ sub _rotate {
 # always returns an array ref
 sub _refinate {
 	my ($self,$ref) = @_;
-	$ref = [@{$self->{'fields_arry'}}] unless $ref || $ref == 0;
+	$ref = [@{$self->{'fields_arry'}}] unless defined $ref;
 	$ref = [$ref] unless ref $ref eq 'ARRAY';
 	return [map {$_ =~ /^\d+$/ ? $self->_lookup_name($_) || $_ : $_} @$ref];
 }
