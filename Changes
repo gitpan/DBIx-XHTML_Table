@@ -1,11 +1,15 @@
 Revision history for Perl extension DBIx::XHTML_Table.
 
-0.80  Sun May  6 18:23:01 2001
-	- original version; created by h2xs 1.19
+0.82
+	- added $Version: $ to avoid future mistakes
+	- corrected formatting in credits
 
 0.81 
 	- fully qualified the package name (oops)
 	- updated and corrected documentation
 	- updated and corrected tutorial
 	- updated and corrected credits
+
+0.80  Sun May  6 18:23:01 2001
+	- original version; created by h2xs 1.19
 

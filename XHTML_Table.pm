@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.8';
+$VERSION = '0.82';
 
 use DBI;
 use Data::Dumper;
@@ -1140,13 +1140,13 @@ to PerlMonk's "extremely" for pointing this out to me.
 
 =head1 CREDITS
 
-=item B<Briac 'OeufMayo' PilprE<eacute>> for the name
+=item Briac 'OeufMayo' PilprE<eacute> for the name
 
-=item B<Mark 'extremely' Mills> for guidence and suggestions
+=item Mark 'extremely' Mills for guidence and suggestions
 
-=item B<Matt Sergeant> for DBIx::XML_RDB
+=item Matt Sergeant for DBIx::XML_RDB
 
-=item B<Perl Monks> for the education
+=item Perl Monks for the education
 
 =head1 SEE ALSO 
 
