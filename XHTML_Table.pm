@@ -2,7 +2,7 @@ package DBIx::XHTML_Table;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.83';
+$VERSION = '0.84';
 
 use DBI;
 use Data::Dumper;
@@ -34,6 +34,9 @@ sub new {
 		# use supplied db handle
 		$self->{dbh}        = $_[0];
 		$self->{keep_alive} = 1;
+	} # move along, nothing to see here
+	elsif (ref $_[0] eq 'ARRAY') {
+		$self->_do_black_magic(shift);
 	}
 	else {
 		# create my own db handle
@@ -54,6 +57,7 @@ sub exec_query {
 	$self->{sth} = $self->{dbh}->prepare($sql) || croak $self->{dbh}->errstr;
 	$self->{sth}->execute(@$vars)              || croak $self->{sth}->errstr;
 
+	# can you say ArrayHashMonster?
 	$self->{fields_arry} = [ map { lc }         @{$self->{sth}->{NAME}} ];
 	$self->{fields_hash} = { map { $_ => $i++ } @{$self->{fields_arry}} };
 	$self->{rows}        = $self->{sth}->fetchall_arrayref;
@@ -82,8 +86,8 @@ sub modify_tag {
 			}
 		}
 	}
-	# or handle a special case (e.g. <CAPTION>)
-	# feature: <TABLE> could be safely modified in this manner
+	# or handle a special case (e.g. <caption>)
+	# feature: <table> could be safely modified in this manner
 	else {
 		# cols is really attribs now, attribs is just a scalar
 		$self->{global}->{$tag."_value"} = $attribs;
@@ -106,86 +110,61 @@ sub map_col {
 	}
 }
 
-sub add_colgroup {
+sub add_col_tag {
 	my ($self,$attribs) = @_;
 	$self->{global}->{colgroup} = {} unless $self->{colgroups};
 	push @{$self->{colgroups}}, $attribs;
 }
 
-# needs refactoring
-sub calc_subtotals {
-	my ($self,$cols,$mask,$nodups) = @_;
-	my $group = $self->{group} || return undef;
-	$group    = $self->{fields_hash}->{$group};
-	my ($last,%totals,@indexes,$col_count) = '';
+sub set_group {
+	my ($self,$group,$nodup,$value) = @_;
+	$self->{group} = lc $group;
+	$self->{nodup} = $value || $self->{null_value} if $nodup;
 
-	return undef unless $self->{rows};
+	my $index = $self->{fields_hash}->{$group} || 0;
 
-	$self->{subtotals_mask} = $mask;
+	# initialize the first 'repetition'
+	my $rep   = $self->{rows}->[0]->[$index];
 
-	$cols    = [$cols] unless ref $cols eq 'ARRAY';
-	@indexes = map { $self->{fields_hash}->{lc $_} } @$cols;
-
-	my $first = 1;
-	my $count = 0;
-	foreach my $row (@{$self->{rows}}) {
-
-		my $tmp = $row->[$group];
-
-		unless ($last eq $tmp or $first) {
-			# new group
-			push ( @{$self->{sub_totals}}, 
-				($count <= 1 and defined $nodups)
-				? []
-				: [ map { defined $totals{$_} ? $totals{$_} : undef } sort (0..$#{$self->{fields_arry}}) ],
-			);
-			# start over
-			%totals = ();
-			$count = 0;
-		}
-
-		# current group or first row
-		foreach my $index (@indexes) {
-			$totals{$index} += $row->[$index] if $row->[$index] =~ /^[-0-9\.]+$/;
-		}
-
-		$first = 0;
-		$last = $tmp;
-		$count++;
+	# loop through the whole rows array, storing
+	# the points at which a new group starts
+	for my $i (0..$self->get_row_count - 1) {
+		my $new = $self->{rows}->[$i]->[$index];
+		push @{$self->{body_breaks}}, $i - 1 unless ($rep eq $new);
+		$rep = $new;
 	}
-	# last group
-	push ( @{$self->{sub_totals}}, 
-		($count <= 1 and defined $nodups)
-		? []
-		: [ map { defined $totals{$_} ? $totals{$_} : undef } sort (0..$#{$self->{fields_arry}}) ],
-	);
+
+	push @{$self->{body_breaks}}, $self->get_row_count - 1;
 }
 
-# needs refactoring
 sub calc_totals {
-	my ($self,$cols,$mask) = @_;
-	my %totals;
 
+	my ($self,$cols,$mask) = @_;
 	return undef unless $self->{rows};
 
 	$self->{totals_mask} = $mask;
 	$cols = [$cols] unless ref $cols eq 'ARRAY';
+	my @indexes = map { $self->{fields_hash}->{lc $_} } @$cols;
 
-	# calculate the totals for requested columns
-	foreach my $col (@$cols) {
-		$col = lc $col;
-		my $index = $self->{fields_hash}->{$col};
-		foreach my $row(@{$self->{rows}}) {
-			$totals{$col} += $row->[$index] if $row->[$index] =~ /^[-0-9\.]+$/;
-		}
+	$self->{totals} = $self->_total_chunk($self->{rows},\@indexes);
+}
+
+sub calc_subtotals {
+
+	my ($self,$cols,$mask,$nodups) = @_;
+
+	return undef unless $self->{rows};
+
+	$self->{subtotals_mask} = $mask;
+	$cols    = [$cols] unless ref $cols eq 'ARRAY';
+	my @indexes = map { $self->{fields_hash}->{lc $_} } @$cols;
+
+	my $beg = 0;
+	foreach my $end (@{$self->{body_breaks}}) {
+		my $chunk = ([@{$self->{rows}}[$beg..$end]]);
+		push @{$self->{sub_totals}}, $self->_total_chunk($chunk,\@indexes);
+		$beg = $end + 1;
 	}
-
-	# store totals in the right order, used when footer is created
-	$self->{totals} = [ 
-		map   { defined $totals{$_} ? $totals{$_} : undef }
-		sort  { $self->{fields_hash}->{$a} <=> $self->{fields_hash}->{$b} }
-		keys %{ $self->{fields_hash} }
-	];
 }
 
 sub get_col_count {
@@ -216,12 +195,6 @@ sub set_row_colors {
 
 }
 
-sub set_group {
-	my ($self,$group,$nodup,$value) = @_;
-	$self->{group} = lc $group;
-	$self->{nodup} = $value || $self->{null_value} if $nodup;
-}
-
 sub set_null_value {
 	my ($self,$value) = @_;
 	$self->{null_value} = $value;
@@ -232,57 +205,47 @@ sub set_null_value {
 
 sub _build_table {
 	my ($self) = @_;
-	my $table  = $self->_build_header 
-	          .  $self->_build_body;
-	$table    .= $self->_build_footer if $self->{totals};
+	my ($attribs,$cdata);
 
-	return _tag_it( 
-				'table', 					# the tag name
-				$self->{global}->{table}, 	# any attributes
-				$table,						# the cdata
-			) . $N;
+	$attribs = $self->{global}->{table};
+
+	$cdata  = $self->_build_header;
+	$cdata .= $self->_build_body   if $self->{rows};
+	$cdata .= $self->_build_footer if $self->{totals};
+
+	return _tag_it('table', $attribs, $cdata,) . $N;
 }
 
 sub _build_header {
 	my ($self) = @_;
-	my $header;
+	my ($output,$attribs,$cdata,$caption);
 
 	# build the caption if applicable
-	if(my $caption = $self->{global}->{caption_value}) {
-		$header .= $N.$T
-				. _tag_it(
-						'caption',
-						$self->{global}->{caption},
-						$self->_xml_encode($caption)
-					);
+	if ($caption = $self->{global}->{caption_value}) {
+		$attribs = $self->{global}->{caption};
+		$cdata   = $self->_xml_encode($caption);
+		$output .= $N.$T . _tag_it('caption', $attribs, $cdata) . $N;
 	}
 
 	# build the colgroups if applicable
-	if(my $attribs = $self->{global}->{colgroup}) {
-		$header .= $N.$T
-				. _tag_it(
-						'colgroup', 
-						$attribs, 
-						$self->_build_header_colgroups()
-					);
+	if ($attribs = $self->{global}->{colgroup}) {
+		$cdata   = $self->_build_header_colgroups();
+		$output .= $N.$T . _tag_it('colgroup', $attribs, $cdata) . $N;
 	}
-	$header .= $N;
 
 	# go ahead and stop if they don't want the titles
-	return $header if $self->{suppress_titles};
+	return $output if $self->{suppress_titles};
 
-	# build the THEAD and TH rows
-	$header .= $T 
-			. _tag_it(
-				'thead',
-				$self->{global}->{thead},
-				$N.$T . _tag_it(
-							'tr', 
-							$self->{header}->{tr}, 
-							$self->_build_header_row()
-						) . $N.$T
-			  ) 
-			. $N;
+	# prepare the tr tag info
+	my $tr_attribs = $self->{header}->{tr};
+	my $tr_cdata   = $self->_build_header_row();
+
+	# prepare the thead tag info
+	$attribs = $self->{global}->{thead};
+	$cdata   = $N.$T . _tag_it('tr', $tr_attribs, $tr_cdata) . $N.$T;
+
+	# add the thead tag to the output
+	$output .= $T . _tag_it('thead', $attribs, $cdata) . $N;
 }
 
 sub _build_header_colgroups {
@@ -305,127 +268,81 @@ sub _build_header_row {
 
 	foreach (@{$self->{fields_arry}}) {
 		my $attribs = $self->{$_}->{th} || $self->{header}->{th} || $self->{global}->{th};
-		$output .= $T.$T 
-				. _tag_it('th', $attribs, ucfirst $_) 
-				. $N;
+		$output .= $T.$T . _tag_it('th', $attribs, ucfirst $_) . $N;
 	}
 
 	return $output . $T;
 }
 
-# needs refactoring
 sub _build_body {
 
-	my ($self) = @_;
+	my ($self)   = @_;
+	my $beg      = 0;
+	my $output;
+
+	# if a group was not set via set_group(),
+	# then use the entire 2-d array
+	my @indicies = exists $self->{body_breaks}
+		? @{$self->{body_breaks}}
+		: (0..$self->get_row_count -1);
+
+	# the skinny here is to grab a slice
+	# of the rows, one for each group
+	foreach my $end (@indicies) {
+		my $body_group = $self->_build_body_group([@{$self->{rows}}[$beg..$end]]);
+		my $attribs    = $self->{global}->{tbody};
+		my $cdata      = $N . $body_group . $T;
+
+		$output .= $T . _tag_it('tbody',$attribs,$cdata) . $N;
+		$beg = $end + 1;
+	}
+	return $output;
+}
+
+sub _build_body_group {
+
+	my ($self,$chunk) = @_;
+	my ($output,$attribs,$cdata);
+
+	# build the rows
+	for my $i (0..$#$chunk) {
+		my $row  = $chunk->[$i];
+		$attribs = $self->{body}->{tr};
+		$cdata   = $self->_build_body_row($row, ($i and $self->{nodup} or 0));
+		$output .= $T . _tag_it('tr', $attribs, $cdata) . $N;
+	}
+
+	# build the subtotal row if applicable
+	if (my $subtotals = shift @{$self->{sub_totals}}) {
+		$attribs = $self->{body}->{tr};
+		$cdata   = $self->_build_body_subtotal($subtotals);
+		$output .= $T . _tag_it('tr',$attribs,$cdata) . $N;
+	}
+
+	return $output;
+}
+
+sub _build_body_row {
+	my ($self,$row,$nodup) = @_;
 
 	my $group = $self->{group};
 	my $index = $self->{fields_hash}->{$group} if $group;
-	my $last  = '';
-	my $body_out = "";
-
-	if ($group) {
-		# process as group sets, multiple bodies
-		my $first = 1;
-		my @bodies = (  );
-		foreach my $row (@{$self->{rows}}) {
-			my $tmp  = $row->[$index];
-			if ($last ne $tmp) {
-				unless ($first) {
-					my $subtotals = shift @{$self->{sub_totals}} || '';
-					$bodies[$#bodies] .= $T 
-						. _tag_it(
-						  	'tr', 
-							$self->{body}->{tr}, 
-							$self->_build_body_subtotal($subtotals)
-						) 
-						. $N if $subtotals;
-				}
-				push @bodies, "";
-			}
-			elsif ($self->{nodup}) {
-				$row->[$index] = $self->{nodup};
-			}
-			$last = $tmp;
-			$bodies[$#bodies] .= $T 
-					. _tag_it(
-						'tr',
-						$self->{body}->{tr},
-						$self->_build_body_rows($row)
-					  ) 
-					. $N;
-			$first = 0;
-		}
-
-		# build the last subtotal row if applicable - hack
-		my $subtotals = shift @{$self->{sub_totals}} || '';
-		$bodies[$#bodies] .= $T 
-				. _tag_it(
-					'tr',
-					$self->{body}->{tr}, 
-					$self->_build_body_subtotal($subtotals)
-				  ) 
-				. $N if $subtotals;
-
-		foreach my $body (@bodies) {
-			$body_out .= $T
-				. _tag_it(
-					'tbody',
-					$self->{global}->{tbody},
-					$N. $body . $T
-				  )
-				. $N;
-		}
-	} 
-	else {
-		# no group means one body
-		my $body = "";
-		foreach my $row (@{$self->{rows}}) {
-			$body .= $T 
-				. _tag_it(
-					'tr',
-					$self->{body}->{tr},
-					$self->_build_body_rows($row)
-				  ) 
-				. $N;
-		}
-		# build the last subtotal row if applicable - hack
-		my $subtotals = shift @{$self->{sub_totals}} || '';
-		$body .= $T 
-				. _tag_it(
-					'tr',
-					$self->{body}->{tr}, 
-					$self->_build_body_subtotal($subtotals)
-				  ) 
-				. $N if $subtotals;
-
-		$body_out .= $T
-			. _tag_it(
-				'tbody',
-				$self->{global}->{tbody},
-				$N. $body . $T
-			  )
-			. $N;
-	}
-
-	return $body_out;
-}
-
-sub _build_body_rows {
-	my ($self,$row) = @_;
 	my $output = $N;
 
 	for (0..$#$row) {
 		my $name    = $self->{fields_arry}->[$_];
 		my $attribs = $self->{$name}->{td} || $self->{global}->{td};
+		my $cdata   = $row->[$_] || $self->{null_value};
+
+		# handle 'no duplicates'
+		$cdata = $self->{nodup} if $nodup and $index == $_;
 
 		# rotate colors if found
 		if (my $colors = $self->{$name}->{colors}) {
 			$attribs->{bgcolor} = _rotate($colors);
 		}
 
-		$output .= $T.$T 
-				. _tag_it('td', $attribs, $row->[$_] || $self->{null_value}) 
-				. $N;
+		$output .= $T.$T . _tag_it('td', $attribs, $cdata) . $N;
 	}
 	return $output . $T;
 }
@@ -443,34 +360,27 @@ sub _build_body_subtotal {
 
 		# use sprintf if mask was supplied
 		if ($self->{subtotals_mask} and defined $sum) {
-			$sum = sprintf($self->{subtotals_mask},$sum)
+			$sum = sprintf($self->{subtotals_mask},$sum);
 		}
 		else {
 			$sum = (defined $sum) ? $sum : $self->{null_value};
 		}
 
-		$output .= $T.$T 
-				. _tag_it('th', $attribs, $sum) 
-				. $N;
+		$output .= $T.$T . _tag_it('th', $attribs, $sum) . $N;
 	}
 	return $output . $T;
 }
 
-
 sub _build_footer {
 	my ($self) = @_;
 
-	return $T 
-			. _tag_it(
-				'tfoot',
-				$self->{global}->{tfoot},
-				$N.$T . _tag_it(
-							'tr', 
-							$self->{footer}->{tr}, 
-							$self->_build_footer_row()
-						) . $N.$T
-			  ) 
-			. $N;
+	my $tr_attribs = $self->{footer}->{tr};
+	my $tr_cdata   = $self->_build_footer_row();
+
+	my $attribs = $self->{global}->{tfoot};
+	my $cdata   = $N.$T . _tag_it('tr', $tr_attribs, $tr_cdata) . $N.$T;
+
+	return $T . _tag_it('tfoot',$attribs,$cdata) . $N;
 }
 
 sub _build_footer_row {
@@ -492,34 +402,35 @@ sub _build_footer_row {
 			$sum = defined $sum ? $sum : $self->{null_value};
 		}
 
-		$output .= $T.$T 
-				. _tag_it('th', $attribs, $sum) 
-				. $N;
+		$output .= $T.$T . _tag_it('th', $attribs, $sum) . $N;
 	}
 	return $output . $T;
-}
-
-# returns value of and moves first element to last
-sub _rotate {
-	my $ref  = shift;
-	my $next = shift @$ref;
-	push @$ref, $next;
-	return $next;
 }
 
 # builds a tag and it's enclosed data
 sub _tag_it {
 	my ($name,$attribs,$cdata) = @_;
-	my $text = "<$name";
+	my $text = "<\L$name\E";
 
-	# build the attributes if any
+	# build the attributes if any - skip blank vals
 	while(my ($k,$v) = each %{$attribs}) {
-		if (ref $v eq 'ARRAY') {
-			$v = _rotate($v);
-		}
-		$text .= ' ' . lc($k) . '="' . $v . '"'
+		$v = _rotate($v) if (ref $v eq 'ARRAY');
+		$text .= qq| \L$k\E="$v"|;
 	}
 	$text .= (defined $cdata) ? ">$cdata</$name>" : '/>';
+}
+
+sub _total_chunk {
+	my ($self,$chunk,$indexes) = @_;
+	my %totals;
+
+	foreach my $row (@$chunk) {
+		foreach (@$indexes) {
+			$totals{$_} += $row->[$_] if $row->[$_] =~ /^[-0-9\.]+$/;
+		}	
+	}
+
+	return [ map { defined $totals{$_} ? $totals{$_} : undef } sort (0..$self->get_col_count() - 1) ];
 }
 
 # uses %ESCAPES to convert the '4 Horsemen' of XML
@@ -530,10 +441,28 @@ sub _xml_encode {
 	return $str;
 }
 
+# returns value of and moves first element to last
+sub _rotate {
+	my $ref  = shift;
+	my $next = shift @$ref;
+	push @$ref, $next;
+	return $next;
+}
+
+sub _do_black_magic {
+	my ($self,$ref) = @_;
+	my $i = 0;
+	$self->{fields_arry} = [ map { lc         } @{ shift @$ref } ];
+	$self->{fields_hash} = { map { $_ => $i++ } @{$self->{fields_arry}} };
+	$self->{rows}        = $ref;
+}
+
 # disconnect database handle if i created it
 sub DESTROY {
 	my ($self) = @_;
-	$self->{dbh}->disconnect unless $self->{keep_alive};
+	unless ($self->{keep_alive}) {
+		$self->{dbh}->disconnect if exists $self->{dbh};
+	}
 }
 
 1;
@@ -629,6 +558,10 @@ The user is highly recommended to become familiar with the rules and
 structure of the new XHTML tags used for tables.  A good, terse
 reference can be found at
 http://www.w3.org/TR/REC-html40/struct/tables.html
+
+There is a simple table after the the following section that
+lists all supported tags, how they are created, and what method
+to use to set the attributes. No big whoop.
 
 Additionally, a simple B<TUTORIAL> is included in this documentation
 toward the end, just before the third door, down the hall, past
@@ -815,11 +748,11 @@ there is no reason to bind it to a column or an area:
   $table->modify_tag('caption','A Table Of Contents');
 
 The only tag that cannot be modified by this method is the <COL>
-tag. Use add_colgroup to add these tags instead.
+tag. Use add_col_tag to add these tags instead.
 
-=item B<add_colgroup>
+=item B<add_col_tag>
 
-  $table->add_colgroup($cols)
+  $table->add_col_tag($cols)
 
 Add a new <col> tag and attributes. The only argument is reference
 to a hash that contains the attributes for this <col> tag. Multiple
@@ -831,7 +764,7 @@ Advice: use <col> and <colgroup> tags wisely, don't do this:
 
   # bad
   for (0..39) {
-    $table->add_colgroup({
+    $table->add_col_tag({
         foo => 'bar',
     });
   }
@@ -848,7 +781,7 @@ You should also consider using <col> tags to set the attributes
 of <td> and <th> instead of the <td> and <th> tags themselves,
 especially if it is for the entire table:
 
-  $table->add_colgroup({
+  $table->add_col_tag({
       span  => $table->get_col_count(),
 	  class => 'body',
   });
@@ -966,10 +899,7 @@ Computes subtotals for specified columns. It is manditory that you
 first specify a group via B<set_group()> before you call this method.
 Each subtotal is tallied from the rows that have the same value
 in the column that you specified to be the group. At this point, only
-one subtotal can be calculated and displayed. Plans for implementing
-N number of subtotals and groups are not on my list, but if enough
-feedback is generated to warrent it, I will get to work. Better yet,
-send me a patch. :)
+one subtotal can be calculated and displayed. 
 
 =item B<get_col_count>
 
@@ -984,6 +914,22 @@ Returns the number of columns in the table.
 Returns the numbers of body rows in the table.
 
 =back
+
+=head1 TAG REFERENCE
+
+   TAG        CREATION   METHODS TO SET ATTRIBS
++-----------+----------+-------------------------+
+| table     |   auto   |      modify_tag()       |
+| caption   |  manual  |      modify_tag()       |
+| thead     |   auto   |      modify_tag()       |
+| tfoot     |   auto   |      modify_tag()       |
+| tbody     |   auto   |      modify_tag()       |
+| colgroup  |  manual  |      modify_tag()       |
+| col       |  manual  |     add_col_tag()       |
+| tr        |   auto   |      modify_tag()       |
+| th        |   auto   |      modify_tag()       |
+| td        |   auto   |      modify_tag()       |
++-----------+------------------------------------+
 
 =head1 TUTORIAL
 
@@ -1106,7 +1052,7 @@ And finally, spice up the body rows with alternating colors:
 
 Experiment, have fun with it. Go to PerlMonks and download
 extremely's Web Color Spectrum Generator and use it supply
-a list of colors to I<set_color>. You can find it at
+a list of colors to I<set_row_colors>. You can find it at
 	http://www.perlmonks.org/index.pl?node_id=70521
 
 =head1 BUGS
@@ -1122,16 +1068,6 @@ However, I do not feel that is ready for a version of
 solved:
 
 =over 4
-
-=item Clean up calc_totals() and calc_subtotals()
-
-These two methods wouldn't get a C from any college
-level Computer Science II course. But they do work,
-so I decided to include them in this release. Expect
-to see these two refactored sometime in the future,
-as well as the subroutine that uses the data they
-create - B<_build_body()> As always, patches are
-welcome. :)
 
 =item Allow multiple groups
 
@@ -1161,16 +1097,6 @@ reports.
 
 The previous item could be easily solved if B<map_col>
 did not alter the original data.
-
-=item Enclose body rows in <tbody> and </tbody>
-
-Currently I am implementing grouping with single <tbody/>
-tags. This isn't legal in XML, because the closing tag is
-a container but seems perfectly ok in HTML4.01.  However,
-the subroutine that handles this, B<_build_body()>, is
-fairly 'cornered in' and would require some serious
-refactoring. Big thanks to PerlMonk's "extremely" for
-pointing this out to me.
 
 =back
 
